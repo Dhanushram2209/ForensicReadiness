@@ -29,30 +29,34 @@ def get_hostname(ip):
     try:
         return socket.gethostbyaddr(ip)[0]
     except:
-        # Try fallback API
-        try:
-            url = f"https://api.ip.sb/geoip/{ip}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as res:
-                data = json.loads(res.read().decode())
-                return data.get("organization", "Unknown")
-        except:
-            return "Unknown"
+        return "Unknown"
 
 def get_geo_info(ip):
     try:
-        url = f"https://ipapi.co/{ip}/json"
+        url = f"https://ipinfo.io/{ip}/json"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=5) as res:
             data = json.loads(res.read().decode())
-            lat = data.get("latitude", 0)
-            lon = data.get("longitude", 0)
+            loc = data.get("loc", "0,0")
             city = data.get("city", "Unknown")
-            country = data.get("country_name", "Unknown")
-            return f"{lat},{lon}", city, country
+            country = data.get("country", "Unknown")
+            org = data.get("org", "Unknown")
+            region = data.get("region", "Unknown")
+            timezone = data.get("timezone", "Unknown")
+            return {
+                "loc": loc,
+                "city": city,
+                "country": country,
+                "org": org,
+                "region": region,
+                "timezone": timezone
+            }
     except Exception as e:
         print(f"[GeoError] for {ip} → {e}")
-        return "0,0", "Unknown", "Unknown"
+        return {
+            "loc": "0,0", "city": "Unknown", "country": "Unknown",
+            "org": "Unknown", "region": "Unknown", "timezone": "Unknown"
+        }
 
 def generate_event_id():
     return str(uuid.uuid4())
@@ -63,30 +67,30 @@ def hash_data(data):
 def log_event(ip, ua, msg, path, method, params=None):
     event_id = generate_event_id()
     hostname = get_hostname(ip)
-    loc, city, country = get_geo_info(ip)
+    geo = get_geo_info(ip)
     timestamp = datetime.now().isoformat()
     data_hash = hash_data(json.dumps(params or {}))
     integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
 
-    log_entry = (
-        f"EventID: {event_id}\n"
-        f"Timestamp: {timestamp}\n"
-        f"IP: {ip}\n"
-        f"Hostname: {hostname}\n"
-        f"Location: {loc} ({city}, {country})\n"
-        f"Method: {method}\n"
-        f"Path: {path}\n"
-        f"User-Agent: {ua}\n"
-        f"Event: {msg}\n"
-        f"DataHash: {data_hash}\n"
-        f"IntegrityHash: {integrity_hash}\n"
-        f"{'-'*60}\n"
-    )
+    log_entry = json.dumps({
+        "event_id": event_id,
+        "timestamp": timestamp,
+        "ip": ip,
+        "hostname": hostname,
+        "ua": ua,
+        "message": msg,
+        "path": path,
+        "method": method,
+        "data_hash": data_hash,
+        "integrity_hash": integrity_hash,
+        **geo
+    })
+
     with open(LOG_PATH, 'a') as f:
-        f.write(log_entry)
+        f.write(log_entry + "\n")
 
     if EMAIL_ALERTS and "Suspicious" in msg:
-        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id)
+        send_email_alert(ip, hostname, msg, path, geo["loc"], geo["city"], geo["country"], ua, event_id)
 
 def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
     body = (
@@ -172,8 +176,12 @@ def admin():
     ip = get_client_ip()
     ua = request.headers.get('User-Agent')
     log_event(ip, ua, "Accessed Admin Panel", request.path, request.method)
-    with open(LOG_PATH, 'r') as f:
-        logs = f.readlines()
+
+    logs = []
+    if os.path.exists(LOG_PATH):
+        with open(LOG_PATH, 'r') as f:
+            logs = [json.loads(line.strip()) for line in f if line.strip()]
+
     return render_template('admin.html', logs=logs)
 
 if __name__ == '__main__':

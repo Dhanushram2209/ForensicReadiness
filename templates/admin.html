@@ -3,18 +3,68 @@
 <head>
     <title>Admin Panel</title>
     <style>
-        body { font-family: Arial; margin: 20px; background: #f4f4f4; }
-        h1 { color: #333; }
-        pre { background: #fff; padding: 10px; border: 1px solid #ccc; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            font-size: 13px;
+        }
+        th {
+            background-color: #343a40;
+            color: white;
+            text-align: left;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .scrollable {
+            max-height: 600px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
-    <h1>Admin Panel</h1>
-    <h2>Forensic Logs:</h2>
-    <pre>
-    {% for line in logs %}
-        {{ line }}
-    {% endfor %}
-    </pre>
+    <h1>Admin Forensic Log Panel</h1>
+    <div class="scrollable">
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>IP</th>
+                    <th>City</th>
+                    <th>Country</th>
+                    <th>Org</th>
+                    <th>Message</th>
+                    <th>User-Agent</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.timestamp }}</td>
+                    <td>{{ log.ip }}</td>
+                    <td>{{ log.city }}</td>
+                    <td>{{ log.country }}</td>
+                    <td>{{ log.org }}</td>
+                    <td>{{ log.message }}</td>
+                    <td>{{ log.ua }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </body>
 </html>
