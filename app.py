@@ -62,24 +62,8 @@ def hash_data(data):
 
 def log_event(ip, ua, msg, path, method, params=None):
     event_id = generate_event_id()
-
-    # Try to resolve client hostname
-    try:
-        client_hostname = socket.gethostbyaddr(ip)[0]
-    except:
-        client_hostname = request.headers.get("REMOTE_HOST", "Unknown")
-
-    # Geo Info
+    hostname = get_hostname(ip)
     loc, city, country = get_geo_info(ip)
-
-    # Server hostname and internal IP
-    try:
-        server_hostname = socket.gethostname()
-        server_ip = socket.gethostbyname(server_hostname)
-    except:
-        server_hostname = "Unknown"
-        server_ip = "Unknown"
-
     timestamp = datetime.now().isoformat()
     data_hash = hash_data(json.dumps(params or {}))
     integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
@@ -87,25 +71,22 @@ def log_event(ip, ua, msg, path, method, params=None):
     log_entry = (
         f"EventID: {event_id}\n"
         f"Timestamp: {timestamp}\n"
-        f"Client IP: {ip}\n"
-        f"Client Hostname: {client_hostname}\n"
+        f"IP: {ip}\n"
+        f"Hostname: {hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
         f"Method: {method}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
         f"Event: {msg}\n"
-        f"Server Hostname: {server_hostname}\n"
-        f"Server Internal IP: {server_ip}\n"
         f"DataHash: {data_hash}\n"
         f"IntegrityHash: {integrity_hash}\n"
         f"{'-'*60}\n"
     )
-
     with open(LOG_PATH, 'a') as f:
         f.write(log_entry)
 
     if EMAIL_ALERTS and "Suspicious" in msg:
-        send_email_alert(ip, client_hostname, msg, path, loc, city, country, ua, event_id)
+        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id)
 
 def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
     body = (
