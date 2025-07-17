@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Panel</title>
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f4f4f4; }
+        h1 { color: #333; }
+        pre { background: #fff; padding: 10px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>Admin Panel</h1>
+    <h2>Forensic Logs:</h2>
+    <pre>
+    {% for line in logs %}
+        {{ line }}
+    {% endfor %}
+    </pre>
+</body>
+</html>

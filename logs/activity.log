@@ -1,0 +1,104 @@
+2025-07-16T16:18:15.308311 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: / | Event: Visited Home
+2025-07-16T16:18:23.848022 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: /login | Event: Visited Login Page
+2025-07-16T16:18:50.634765 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: /login | Event: Successful Login
+2025-07-16T16:18:50.960300 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: /admin | Event: Accessed Admin Panel
+2025-07-17T14:01:34.473592 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: / | Event: Visited Home
+2025-07-17T14:01:36.462206 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: /login | Event: Visited Login Page
+2025-07-17T14:01:43.744286 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: /login | Event: Successful Login
+2025-07-17T14:01:43.804888 | IP: 127.0.0.1 | Location: 0,0 (Unknown, Unknown) | UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 | Path: /admin | Event: Accessed Admin Panel
+EventID: 29ab3c4a-ef20-4163-ab29-a8bcd6b691b0
+Timestamp: 2025-07-17T14:14:36.821563
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Home Page
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 75c51935f91bb756c6c63e098cda09809b04a9e2a90fd9a44bad1d5c722a3f3b
+------------------------------------------------------------
+EventID: fed8617c-e977-446a-8acb-74742330953c
+Timestamp: 2025-07-17T14:14:40.805360
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Login Page
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 16a56528be6f2821525575971ea91a07088fb58db1307cab0f68b9b8908682cb
+------------------------------------------------------------
+EventID: 1f79e055-d866-4456-b054-0e6b20c89fcd
+Timestamp: 2025-07-17T14:14:47.934595
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: POST
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Successful Login
+DataHash: 7b61917b5583df5095772713aab9a0a8f21d702de3835ad47422f3da08e1d4ca
+IntegrityHash: 110d7f44f9c47138048c4961586f38db71d02940993a22a374308c3a09be684a
+------------------------------------------------------------
+EventID: 35eca028-fe15-4b30-980f-7b05fba4a991
+Timestamp: 2025-07-17T14:14:48.005272
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /admin
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Accessed Admin Panel
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 80dfbfb52f5c7b3d5b80633bcba3bd3129c02061bbf06e969bc0b6b7212c823d
+------------------------------------------------------------
+EventID: a1618389-7be9-461d-beba-6d8fe0d5ec2f
+Timestamp: 2025-07-17T14:18:18.031983
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Home Page
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 40af19f5eae36c510ee8b2b2b2c56844cff0eaa0e3435a9ab91834c6811b82ba
+------------------------------------------------------------
+EventID: 5ae937ab-5223-409c-b8cb-74921a728eb2
+Timestamp: 2025-07-17T14:18:19.776878
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Login Page
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 7d9c15f4c00308f108e5f244e675a8f4c83383f4837ba37a057c0e45ec295cbc
+------------------------------------------------------------
+EventID: e18b99c1-0b04-4bb6-aa92-0d78614232a4
+Timestamp: 2025-07-17T14:18:26.810273
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: POST
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Successful Login
+DataHash: 7b61917b5583df5095772713aab9a0a8f21d702de3835ad47422f3da08e1d4ca
+IntegrityHash: 0f59e0ee63dc34baa1bd4f0a90da4ed5b2b0a1180a6ba788c32957a1e5cb7c2e
+------------------------------------------------------------
+EventID: fef53228-ea89-4b4a-a1d6-e00eafc7f7f1
+Timestamp: 2025-07-17T14:18:26.872188
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /admin
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Accessed Admin Panel
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 0203fde730d1947592dec2ff24288420199b4eacf202ae1702c4e3b839b82cd0
+------------------------------------------------------------
