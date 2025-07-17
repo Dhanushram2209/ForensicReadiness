@@ -474,3 +474,67 @@ Server Internal IP: 192.168.1.180
 DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
 IntegrityHash: f723bf02572a03842786a41f6091ac8c07c71c1b604b98dfc6dc66921cb4185e
 ------------------------------------------------------------
+EventID: 34ab1634-a936-421d-83ba-d6b2be03663c
+Timestamp: 2025-07-17T16:21:49.253544
+IP Address: 127.0.0.1
+Resolved Hostname: Internal IP
+Client Hostname: Internal
+Location: 0,0 (Internal Network, N/A)
+ISP/Org: Private IP
+Method: GET
+Path: /
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Home Page
+Server Hostname: Dhanush
+Server Internal IP: 192.168.1.180
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 88235c86214ccc5b4e77ee93ccd72d93c704598d6794e1bcfe7554e14eb09914
+------------------------------------------------------------
+EventID: bfd5a15e-3f63-495f-8f46-e6ef19bb62a0
+Timestamp: 2025-07-17T16:21:52.149495
+IP Address: 127.0.0.1
+Resolved Hostname: Internal IP
+Client Hostname: Internal
+Location: 0,0 (Internal Network, N/A)
+ISP/Org: Private IP
+Method: GET
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Login Page
+Server Hostname: Dhanush
+Server Internal IP: 192.168.1.180
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 97478b7bf32a1c1c6d8496f76bc6a4567cdf6a283b19d3641879bdce336bfa26
+------------------------------------------------------------
+EventID: 05c9b6bd-d9b4-4f8f-811b-138e60d72b61
+Timestamp: 2025-07-17T16:21:58.263360
+IP Address: 127.0.0.1
+Resolved Hostname: Internal IP
+Client Hostname: Internal
+Location: 0,0 (Internal Network, N/A)
+ISP/Org: Private IP
+Method: POST
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Successful Login
+Server Hostname: Dhanush
+Server Internal IP: 192.168.1.180
+DataHash: 7b61917b5583df5095772713aab9a0a8f21d702de3835ad47422f3da08e1d4ca
+IntegrityHash: 860dcf55cd3983d6ffd0760ab07bff94aacc39603ff08c938eda41becb35a109
+------------------------------------------------------------
+EventID: 4fd01e0c-9043-4310-a6fd-b04098097943
+Timestamp: 2025-07-17T16:21:58.269072
+IP Address: 127.0.0.1
+Resolved Hostname: Internal IP
+Client Hostname: Internal
+Location: 0,0 (Internal Network, N/A)
+ISP/Org: Private IP
+Method: GET
+Path: /admin
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Accessed Admin Panel
+Server Hostname: Dhanush
+Server Internal IP: 192.168.1.180
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 834d3cc50da89a7220ae6e2f8f7531bd5135fbf092e3aef33f321a02b97a0382
+------------------------------------------------------------

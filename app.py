@@ -18,21 +18,25 @@ EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
 os.makedirs(LOG_DIR, exist_ok=True)
 
 def get_client_ip():
+    # Trust proxy headers for public IP (important on Render)
     forwarded = request.headers.get('X-Forwarded-For', '')
     ip = forwarded.split(',')[0].strip() if forwarded else request.remote_addr
     return ip
 
-def is_public_ip(ip):
+def is_internal_ip(ip):
     private_prefixes = (
         '127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.',
-        '172.2', '0.', '169.254.'
+        '172.2', '169.254.', '0.'
     )
-    return not any(ip.startswith(prefix) for prefix in private_prefixes)
+    return any(ip.startswith(prefix) for prefix in private_prefixes)
 
 def get_hostname(ip):
+    if is_internal_ip(ip):
+        return "Internal IP"
     try:
         return socket.gethostbyaddr(ip)[0]
     except:
+        # Use external service
         try:
             url = f"https://ipinfo.io/{ip}/json"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -43,8 +47,9 @@ def get_hostname(ip):
             return "Unknown"
 
 def get_geo_info(ip):
-    if not is_public_ip(ip):
-        return "0,0", "Localhost", "Local Network", "Private IP (no geolocation)"
+    if is_internal_ip(ip):
+        return "0,0", "Internal Network", "N/A", "Private IP"
+
     try:
         url = f"https://ipapi.co/{ip}/json"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -70,8 +75,9 @@ def hash_data(data):
 def log_event(ip, ua, msg, path, method, params=None):
     event_id = generate_event_id()
     hostname = get_hostname(ip)
+
     try:
-        client_hostname = socket.gethostbyaddr(ip)[0]
+        client_hostname = socket.gethostbyaddr(ip)[0] if not is_internal_ip(ip) else "Internal"
     except:
         client_hostname = request.headers.get("REMOTE_HOST", "Unknown")
 
