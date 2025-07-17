@@ -19,27 +19,32 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 def get_client_ip():
     forwarded = request.headers.get('X-Forwarded-For', '')
-    if ',' in forwarded:
-        ip = forwarded.split(',')[0]
-    else:
-        ip = forwarded or request.headers.get('X-Real-IP') or request.remote_addr
-    return ip.strip()
+    ip = forwarded.split(',')[0].strip() if forwarded else request.remote_addr
+    return ip
+
+def is_public_ip(ip):
+    private_prefixes = (
+        '127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.',
+        '172.2', '0.', '169.254.'
+    )
+    return not any(ip.startswith(prefix) for prefix in private_prefixes)
 
 def get_hostname(ip):
     try:
         return socket.gethostbyaddr(ip)[0]
     except:
-        # Try fallback API
         try:
-            url = f"https://api.ip.sb/geoip/{ip}"
+            url = f"https://ipinfo.io/{ip}/json"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as res:
                 data = json.loads(res.read().decode())
-                return data.get("organization", "Unknown")
+                return data.get("org", "Unknown")
         except:
             return "Unknown"
 
 def get_geo_info(ip):
+    if not is_public_ip(ip):
+        return "0,0", "Localhost", "Local Network", "Private IP (no geolocation)"
     try:
         url = f"https://ipapi.co/{ip}/json"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -48,11 +53,13 @@ def get_geo_info(ip):
             lat = data.get("latitude", 0)
             lon = data.get("longitude", 0)
             city = data.get("city", "Unknown")
+            region = data.get("region", "")
             country = data.get("country_name", "Unknown")
-            return f"{lat},{lon}", city, country
+            org = data.get("org", "Unknown")
+            return f"{lat},{lon}", f"{city}, {region}", country, org
     except Exception as e:
         print(f"[GeoError] for {ip} → {e}")
-        return "0,0", "Unknown", "Unknown"
+        return "0,0", "Unknown", "Unknown", "Unknown"
 
 def generate_event_id():
     return str(uuid.uuid4())
@@ -63,7 +70,20 @@ def hash_data(data):
 def log_event(ip, ua, msg, path, method, params=None):
     event_id = generate_event_id()
     hostname = get_hostname(ip)
-    loc, city, country = get_geo_info(ip)
+    try:
+        client_hostname = socket.gethostbyaddr(ip)[0]
+    except:
+        client_hostname = request.headers.get("REMOTE_HOST", "Unknown")
+
+    loc, city, country, org = get_geo_info(ip)
+
+    try:
+        server_hostname = socket.gethostname()
+        server_ip = socket.gethostbyname(server_hostname)
+    except:
+        server_hostname = "Unknown"
+        server_ip = "Unknown"
+
     timestamp = datetime.now().isoformat()
     data_hash = hash_data(json.dumps(params or {}))
     integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
@@ -71,17 +91,22 @@ def log_event(ip, ua, msg, path, method, params=None):
     log_entry = (
         f"EventID: {event_id}\n"
         f"Timestamp: {timestamp}\n"
-        f"IP: {ip}\n"
-        f"Hostname: {hostname}\n"
+        f"IP Address: {ip}\n"
+        f"Resolved Hostname: {hostname}\n"
+        f"Client Hostname: {client_hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
+        f"ISP/Org: {org}\n"
         f"Method: {method}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
         f"Event: {msg}\n"
+        f"Server Hostname: {server_hostname}\n"
+        f"Server Internal IP: {server_ip}\n"
         f"DataHash: {data_hash}\n"
         f"IntegrityHash: {integrity_hash}\n"
         f"{'-'*60}\n"
     )
+
     with open(LOG_PATH, 'a') as f:
         f.write(log_entry)
 
