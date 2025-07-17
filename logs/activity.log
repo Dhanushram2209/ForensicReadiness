@@ -298,3 +298,51 @@ Server Internal IP: 192.168.1.180
 DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
 IntegrityHash: c3256d9733f3bb12c95cb12219b62c03d92e90ea74110e2b204aa8b6d3e7bfca
 ------------------------------------------------------------
+EventID: c3cbed1d-63cd-46f8-9c40-81fbb7a1f4a6
+Timestamp: 2025-07-17T16:00:19.690003
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Home Page
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: abb13923dc1996323ff9c7e901bb56dc9b1f6fa6a5764d3431039364ef819eca
+------------------------------------------------------------
+EventID: dd69e925-0bc3-4871-9de5-856b4f35e29d
+Timestamp: 2025-07-17T16:00:22.923340
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Visited Login Page
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: fe2d5283c05bca52686647883999e7bcb5ef46884bfd90e136e7abcab211bdd7
+------------------------------------------------------------
+EventID: 21f7825a-7f50-4450-9254-c0904d8f69d0
+Timestamp: 2025-07-17T16:00:29.015687
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: POST
+Path: /login
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Successful Login
+DataHash: 7b61917b5583df5095772713aab9a0a8f21d702de3835ad47422f3da08e1d4ca
+IntegrityHash: 92affc25970350bd5e8c1678667ef2a398b25084dca45bf3b79196b8d5401f75
+------------------------------------------------------------
+EventID: f2ca4188-dbe6-47b1-92e4-3e3961dd4d5c
+Timestamp: 2025-07-17T16:00:29.390495
+IP: 127.0.0.1
+Hostname: Dhanush
+Location: 0,0 (Unknown, Unknown)
+Method: GET
+Path: /admin
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+Event: Accessed Admin Panel
+DataHash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+IntegrityHash: 692bae58bfd923f9256c218a94d2282f3fb146d8e69ae155b2ffa910fea36149
+------------------------------------------------------------
