@@ -17,18 +17,18 @@ EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
+
 def get_client_ip():
-    # Trust proxy headers for public IP (important on Render)
+    # For Render, get the public IP from X-Forwarded-For
     forwarded = request.headers.get('X-Forwarded-For', '')
-    ip = forwarded.split(',')[0].strip() if forwarded else request.remote_addr
-    return ip
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or "0.0.0.0"
+
 
 def is_internal_ip(ip):
-    private_prefixes = (
-        '127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.',
-        '172.2', '169.254.', '0.'
-    )
-    return any(ip.startswith(prefix) for prefix in private_prefixes)
+    return ip.startswith(("127.", "10.", "192.168.", "172.", "169.254.", "0."))
+
 
 def get_hostname(ip):
     if is_internal_ip(ip):
@@ -36,22 +36,15 @@ def get_hostname(ip):
     try:
         return socket.gethostbyaddr(ip)[0]
     except:
-        # Use external service
-        try:
-            url = f"https://ipinfo.io/{ip}/json"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as res:
-                data = json.loads(res.read().decode())
-                return data.get("org", "Unknown")
-        except:
-            return "Unknown"
+        return "Unknown"
+
 
 def get_geo_info(ip):
     if is_internal_ip(ip):
-        return "0,0", "Internal Network", "N/A", "Private IP"
+        return "0,0", "Internal Network", "N/A", "Private IP", False, False, False
 
     try:
-        url = f"https://ipapi.co/{ip}/json"
+        url = f"https://ipwho.is/{ip}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=5) as res:
             data = json.loads(res.read().decode())
@@ -59,49 +52,50 @@ def get_geo_info(ip):
             lon = data.get("longitude", 0)
             city = data.get("city", "Unknown")
             region = data.get("region", "")
-            country = data.get("country_name", "Unknown")
-            org = data.get("org", "Unknown")
-            return f"{lat},{lon}", f"{city}, {region}", country, org
+            country = data.get("country", "Unknown")
+            org = data.get("connection", {}).get("isp", "Unknown")
+            vpn = data.get("security", {}).get("vpn", False)
+            proxy = data.get("security", {}).get("proxy", False)
+            hosting = data.get("security", {}).get("hosting", False)
+            return f"{lat},{lon}", f"{city}, {region}", country, org, vpn, proxy, hosting
     except Exception as e:
-        print(f"[GeoError] for {ip} → {e}")
-        return "0,0", "Unknown", "Unknown", "Unknown"
+        print(f"[GeoError] {ip} → {e}")
+        return "0,0", "Unknown", "Unknown", "Unknown", False, False, False
+
 
 def generate_event_id():
     return str(uuid.uuid4())
 
+
 def hash_data(data):
     return hashlib.sha256(data.encode()).hexdigest()
+
 
 def log_event(ip, ua, msg, path, method, params=None):
     event_id = generate_event_id()
     hostname = get_hostname(ip)
-
-    try:
-        client_hostname = socket.gethostbyaddr(ip)[0] if not is_internal_ip(ip) else "Internal"
-    except:
-        client_hostname = request.headers.get("REMOTE_HOST", "Unknown")
-
-    loc, city, country, org = get_geo_info(ip)
+    loc, city, country, org, vpn, proxy, hosting = get_geo_info(ip)
 
     try:
         server_hostname = socket.gethostname()
         server_ip = socket.gethostbyname(server_hostname)
     except:
-        server_hostname = "Unknown"
-        server_ip = "Unknown"
+        server_hostname = server_ip = "Unknown"
 
     timestamp = datetime.now().isoformat()
     data_hash = hash_data(json.dumps(params or {}))
     integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
+
+    vpn_status = f"VPN: {vpn} | Proxy: {proxy} | Hosting: {hosting}"
 
     log_entry = (
         f"EventID: {event_id}\n"
         f"Timestamp: {timestamp}\n"
         f"IP Address: {ip}\n"
         f"Resolved Hostname: {hostname}\n"
-        f"Client Hostname: {client_hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
         f"ISP/Org: {org}\n"
+        f"VPN/Proxy/Hosting: {vpn_status}\n"
         f"Method: {method}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
@@ -116,16 +110,18 @@ def log_event(ip, ua, msg, path, method, params=None):
     with open(LOG_PATH, 'a') as f:
         f.write(log_entry)
 
-    if EMAIL_ALERTS and "Suspicious" in msg:
-        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id)
+    if EMAIL_ALERTS and ("Suspicious" in msg or vpn or proxy or hosting):
+        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, vpn_status)
 
-def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
+
+def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, vpn_status):
     body = (
         f"Suspicious Activity Detected!\n\n"
         f"Event ID: {event_id}\n"
         f"IP: {ip}\n"
         f"Hostname: {hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
+        f"VPN/Proxy/Hosting: {vpn_status}\n"
         f"Event: {msg}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
@@ -135,12 +131,14 @@ def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
     msg_obj['Subject'] = "Alert: Suspicious Activity Detected"
     msg_obj['From'] = 'alert@yourdomain.com'
     msg_obj['To'] = EMAIL_TO
+
     try:
         s = smtplib.SMTP('localhost')
         s.send_message(msg_obj)
         s.quit()
     except Exception as e:
         print("Email failed:", e)
+
 
 def detect_attack(data):
     patterns = ["<script>", "onerror=", "' OR 1=1", "--", "DROP TABLE", "javascript:"]
@@ -150,15 +148,18 @@ def detect_attack(data):
                 return True
     return False
 
+
 @app.before_request
 def block_banned_ips():
     ip = get_client_ip()
     if ip in BAN_LIST:
         return "403 Forbidden - You are banned", 403
 
+
 @app.route('/healthz')
 def health():
     return "OK", 200
+
 
 @app.route('/')
 def index():
@@ -166,6 +167,7 @@ def index():
     ua = request.headers.get('User-Agent')
     log_event(ip, ua, "Visited Home Page", request.path, request.method)
     return render_template('index.html')
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -196,6 +198,7 @@ def login():
         log_event(ip, ua, "Visited Login Page", request.path, request.method)
         return render_template('login.html')
 
+
 @app.route('/admin')
 def admin():
     if 'user' not in session:
@@ -206,6 +209,7 @@ def admin():
     with open(LOG_PATH, 'r') as f:
         logs = f.readlines()
     return render_template('admin.html', logs=logs)
+
 
 if __name__ == '__main__':
     from werkzeug.serving import run_simple
