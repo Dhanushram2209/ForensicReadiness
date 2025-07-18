@@ -12,6 +12,7 @@ LOG_PATH = os.path.join(LOG_DIR, 'activity.log')
 BAN_LIST = set()
 FAILED_LOGINS = {}
 VPN_BLOCK = True  # Enable VPN blocking
+VPN_API_KEY = 'bf2545c0ee254df9ac88c7dee3c49346'  # Your VPNAPI.io key
 
 EMAIL_ALERTS = True
 EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
@@ -19,7 +20,6 @@ EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
 os.makedirs(LOG_DIR, exist_ok=True)
 
 def get_client_ip():
-    # Trust proxy headers for public IP (important on Render)
     forwarded = request.headers.get('X-Forwarded-For', '')
     ip = forwarded.split(',')[0].strip() if forwarded else request.remote_addr
     return ip
@@ -32,37 +32,46 @@ def is_internal_ip(ip):
     return any(ip.startswith(prefix) for prefix in private_prefixes)
 
 def is_vpn_or_proxy(ip):
-    """Check if IP belongs to a known VPN/proxy service"""
+    """Check if IP belongs to a known VPN/proxy service using VPNAPI.io"""
+    if is_internal_ip(ip):
+        return False
+        
     try:
-        url = f"https://ipinfo.io/{ip}/json"
+        # Primary check with VPNAPI.io
+        url = f"https://vpnapi.io/api/{ip}?key={VPN_API_KEY}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=5) as res:
             data = json.loads(res.read().decode())
-            # Check for known VPN/proxy indicators
-            if data.get("vpn", False) or data.get("proxy", False):
+            
+            # Check all security flags
+            security = data.get('security', {})
+            if security.get('vpn', False) or \
+               security.get('proxy', False) or \
+               security.get('tor', False) or \
+               security.get('relay', False):
                 return True
-            if any(keyword in data.get("org", "").lower() 
-                  for keyword in ["vpn", "proxy", "tor", "anonymous"]):
+            
+            # Additional check for hosting services
+            if any(tag in data.get('network', {}).get('autonomous_system_organization', '').lower()
+               for tag in ['hosting', 'leaseweb', 'cloud', 'server', 'datacenter']):
                 return True
+                
             return False
-    except:
+            
+    except Exception as e:
+        print(f"VPN detection error for {ip}: {e}")
         return False
 
 def get_hostname(ip):
     if is_internal_ip(ip):
         return "Internal IP"
     try:
-        return socket.gethostbyaddr(ip)[0]
+        hostname = socket.gethostbyaddr(ip)[0]
+        if any(tag in hostname.lower() for tag in ['.vpn.', '.proxy.', '.hosting.']):
+            return f"{hostname} (VPN/Hosting)"
+        return hostname
     except:
-        # Use external service
-        try:
-            url = f"https://ipinfo.io/{ip}/json"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as res:
-                data = json.loads(res.read().decode())
-                return data.get("org", "Unknown")
-        except:
-            return "Unknown"
+        return "Unknown"
 
 def get_geo_info(ip):
     if is_internal_ip(ip):
@@ -93,53 +102,32 @@ def hash_data(data):
 def log_event(ip, ua, msg, path, method, params=None):
     event_id = generate_event_id()
     hostname = get_hostname(ip)
-
-    try:
-        client_hostname = socket.gethostbyaddr(ip)[0] if not is_internal_ip(ip) else "Internal"
-    except:
-        client_hostname = request.headers.get("REMOTE_HOST", "Unknown")
-
     loc, city, country, org = get_geo_info(ip)
-
-    try:
-        server_hostname = socket.gethostname()
-        server_ip = socket.gethostbyname(server_hostname)
-    except:
-        server_hostname = "Unknown"
-        server_ip = "Unknown"
-
     timestamp = datetime.now().isoformat()
-    data_hash = hash_data(json.dumps(params or {}))
-    integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
-
+    
     log_entry = (
         f"EventID: {event_id}\n"
         f"Timestamp: {timestamp}\n"
         f"IP Address: {ip}\n"
         f"Resolved Hostname: {hostname}\n"
-        f"Client Hostname: {client_hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
         f"ISP/Org: {org}\n"
         f"Method: {method}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
         f"Event: {msg}\n"
-        f"Server Hostname: {server_hostname}\n"
-        f"Server Internal IP: {server_ip}\n"
-        f"DataHash: {data_hash}\n"
-        f"IntegrityHash: {integrity_hash}\n"
         f"{'-'*60}\n"
     )
 
     with open(LOG_PATH, 'a') as f:
         f.write(log_entry)
 
-    if EMAIL_ALERTS and "Suspicious" in msg:
+    if EMAIL_ALERTS and any(x in msg.lower() for x in ['suspicious', 'blocked', 'vpn']):
         send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id)
 
 def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
     body = (
-        f"Suspicious Activity Detected!\n\n"
+        f"Security Alert!\n\n"
         f"Event ID: {event_id}\n"
         f"IP: {ip}\n"
         f"Hostname: {hostname}\n"
@@ -147,11 +135,12 @@ def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
         f"Event: {msg}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
-        f"Time: {datetime.now().isoformat()}"
+        f"Time: {datetime.now().isoformat()}\n\n"
+        f"Action Recommended: Review logs for potential security issues."
     )
     msg_obj = MIMEText(body)
-    msg_obj['Subject'] = "Alert: Suspicious Activity Detected"
-    msg_obj['From'] = 'alert@yourdomain.com'
+    msg_obj['Subject'] = f"Security Alert: {msg[:50]}..."
+    msg_obj['From'] = 'security@yourdomain.com'
     msg_obj['To'] = EMAIL_TO
     try:
         s = smtplib.SMTP('localhost')
@@ -169,16 +158,22 @@ def detect_attack(data):
     return False
 
 @app.before_request
-def block_banned_ips():
+def security_checks():
     ip = get_client_ip()
-    if ip in BAN_LIST:
-        return render_template('blocked.html'), 403
+    ua = request.headers.get('User-Agent', '')
     
-    # Block VPN users if VPN_BLOCK is enabled
-    if VPN_BLOCK and not is_internal_ip(ip) and is_vpn_or_proxy(ip):
-        log_event(ip, request.headers.get('User-Agent'), 
-                "Blocked: VPN/Proxy Detected", request.path, request.method)
-        return render_template('blocked.html', reason="VPN/Proxy services are not allowed"), 403
+    # Block banned IPs
+    if ip in BAN_LIST:
+        log_event(ip, ua, "Blocked: Banned IP Attempt", request.path, request.method)
+        return render_template('blocked.html', 
+                            reason="Your IP has been banned due to suspicious activity"), 403
+    
+    # Block VPNs/Proxies
+    if VPN_BLOCK and not is_internal_ip(ip):
+        if is_vpn_or_proxy(ip):
+            log_event(ip, ua, "Blocked: VPN/Proxy/Hosting Detected", request.path, request.method)
+            return render_template('blocked.html', 
+                                reason="VPN, proxy, or hosting services are not allowed. Please disable your VPN to access this site."), 403
 
 @app.route('/healthz')
 def health():
@@ -195,6 +190,7 @@ def index():
 def login():
     ip = get_client_ip()
     ua = request.headers.get('User-Agent')
+    
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
@@ -202,7 +198,7 @@ def login():
 
         if detect_attack(data):
             log_event(ip, ua, "Suspicious: Injection Attempt", request.path, request.method, data)
-            return render_template('blocked.html', reason="Attack detected"), 403
+            return render_template('blocked.html', reason="Security violation detected"), 403
 
         if username == 'admin' and password == 'password':
             session['user'] = username
@@ -210,12 +206,14 @@ def login():
             return redirect(url_for('admin'))
         else:
             FAILED_LOGINS[ip] = FAILED_LOGINS.get(ip, 0) + 1
-            if FAILED_LOGINS[ip] >= 5:
+            if FAILED_LOGINS[ip] >= 3:  # Reduced threshold for testing
                 BAN_LIST.add(ip)
-                log_event(ip, ua, "IP Banned due to Brute Force", request.path, request.method)
+                log_event(ip, ua, "IP Banned: Too Many Failed Logins", request.path, request.method)
+                return render_template('blocked.html', 
+                                    reason="Too many failed login attempts. Your IP has been temporarily banned."), 403
             else:
-                log_event(ip, ua, "Failed Login Attempt", request.path, request.method)
-            return "Invalid credentials", 401
+                log_event(ip, ua, f"Failed Login Attempt ({FAILED_LOGINS[ip]}/3)", request.path, request.method)
+                return "Invalid credentials", 401
     else:
         log_event(ip, ua, "Visited Login Page", request.path, request.method)
         return render_template('login.html')
@@ -224,12 +222,29 @@ def login():
 def admin():
     if 'user' not in session:
         return redirect(url_for('login'))
+    
     ip = get_client_ip()
     ua = request.headers.get('User-Agent')
     log_event(ip, ua, "Accessed Admin Panel", request.path, request.method)
-    with open(LOG_PATH, 'r') as f:
-        logs = f.readlines()
-    return render_template('admin.html', logs=logs)
+    
+    try:
+        with open(LOG_PATH, 'r') as f:
+            logs = f.readlines()
+        return render_template('admin.html', logs=logs[-100:])  # Show last 100 lines
+    except Exception as e:
+        return f"Error reading logs: {str(e)}", 500
+
+@app.route('/logs')
+def view_logs():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        with open(LOG_PATH, 'r') as f:
+            logs = f.read()
+        return f"<pre>{logs}</pre>"
+    except Exception as e:
+        return f"Error reading logs: {str(e)}", 500
 
 if __name__ == '__main__':
     from werkzeug.serving import run_simple
