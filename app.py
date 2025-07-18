@@ -11,6 +11,7 @@ LOG_DIR = 'logs'
 LOG_PATH = os.path.join(LOG_DIR, 'activity.log')
 BAN_LIST = set()
 FAILED_LOGINS = {}
+VPN_BLOCK = True  # Enable VPN blocking
 
 EMAIL_ALERTS = True
 EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
@@ -29,6 +30,23 @@ def is_internal_ip(ip):
         '172.2', '169.254.', '0.'
     )
     return any(ip.startswith(prefix) for prefix in private_prefixes)
+
+def is_vpn_or_proxy(ip):
+    """Check if IP belongs to a known VPN/proxy service"""
+    try:
+        url = f"https://ipinfo.io/{ip}/json"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode())
+            # Check for known VPN/proxy indicators
+            if data.get("vpn", False) or data.get("proxy", False):
+                return True
+            if any(keyword in data.get("org", "").lower() 
+                  for keyword in ["vpn", "proxy", "tor", "anonymous"]):
+                return True
+            return False
+    except:
+        return False
 
 def get_hostname(ip):
     if is_internal_ip(ip):
@@ -154,7 +172,13 @@ def detect_attack(data):
 def block_banned_ips():
     ip = get_client_ip()
     if ip in BAN_LIST:
-        return "403 Forbidden - You are banned", 403
+        return render_template('blocked.html'), 403
+    
+    # Block VPN users if VPN_BLOCK is enabled
+    if VPN_BLOCK and not is_internal_ip(ip) and is_vpn_or_proxy(ip):
+        log_event(ip, request.headers.get('User-Agent'), 
+                "Blocked: VPN/Proxy Detected", request.path, request.method)
+        return render_template('blocked.html', reason="VPN/Proxy services are not allowed"), 403
 
 @app.route('/healthz')
 def health():
@@ -178,7 +202,7 @@ def login():
 
         if detect_attack(data):
             log_event(ip, ua, "Suspicious: Injection Attempt", request.path, request.method, data)
-            return "Attack Detected", 403
+            return render_template('blocked.html', reason="Attack detected"), 403
 
         if username == 'admin' and password == 'password':
             session['user'] = username
