@@ -3,7 +3,6 @@ import hashlib, time, os, json, urllib.request, socket, uuid
 from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
-import requests  # Added for better API requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'supersecretkey')
@@ -15,10 +14,6 @@ FAILED_LOGINS = {}
 
 EMAIL_ALERTS = True
 EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
-
-# IP quality score API for VPN/proxy detection
-IP_QUALITY_KEY = os.environ.get('IP_QUALITY_KEY', '')
-IP_API_KEY = os.environ.get('IP_API_KEY', '')
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -53,90 +48,23 @@ def get_hostname(ip):
 
 def get_geo_info(ip):
     if is_internal_ip(ip):
-        return {
-            "coordinates": "0,0",
-            "city": "Internal Network",
-            "country": "N/A",
-            "org": "Private IP",
-            "is_vpn": False,
-            "is_proxy": False,
-            "is_tor": False,
-            "risk_score": 0
-        }
+        return "0,0", "Internal Network", "N/A", "Private IP"
 
     try:
-        # First try ipapi.co
-        url = f"https://ipapi.co/{ip}/json/"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        
-        if IP_API_KEY:
-            url += f"?key={IP_API_KEY}"
-            
-        response = requests.get(url, headers=headers, timeout=5)
-        data = response.json()
-        
-        lat = data.get("latitude", 0)
-        lon = data.get("longitude", 0)
-        city = data.get("city", "Unknown")
-        region = data.get("region", "")
-        country = data.get("country_name", "Unknown")
-        org = data.get("org", "Unknown")
-        
-        # Now check for VPN/proxy using IPQualityScore
-        vpn_info = check_vpn_proxy(ip)
-        
-        return {
-            "coordinates": f"{lat},{lon}",
-            "city": f"{city}, {region}",
-            "country": country,
-            "org": org,
-            "is_vpn": vpn_info.get("vpn", False),
-            "is_proxy": vpn_info.get("proxy", False),
-            "is_tor": vpn_info.get("tor", False),
-            "risk_score": vpn_info.get("risk_score", 0)
-        }
+        url = f"https://ipapi.co/{ip}/json"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode())
+            lat = data.get("latitude", 0)
+            lon = data.get("longitude", 0)
+            city = data.get("city", "Unknown")
+            region = data.get("region", "")
+            country = data.get("country_name", "Unknown")
+            org = data.get("org", "Unknown")
+            return f"{lat},{lon}", f"{city}, {region}", country, org
     except Exception as e:
         print(f"[GeoError] for {ip} → {e}")
-        return {
-            "coordinates": "0,0",
-            "city": "Unknown",
-            "country": "Unknown",
-            "org": "Unknown",
-            "is_vpn": False,
-            "is_proxy": False,
-            "is_tor": False,
-            "risk_score": 0
-        }
-
-def check_vpn_proxy(ip):
-    """Check if IP is VPN/Proxy/Tor using IPQualityScore"""
-    if not IP_QUALITY_KEY or is_internal_ip(ip):
-        return {
-            "vpn": False,
-            "proxy": False,
-            "tor": False,
-            "risk_score": 0
-        }
-    
-    try:
-        url = f"https://www.ipqualityscore.com/api/json/ip/{IP_QUALITY_KEY}/{ip}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        
-        return {
-            "vpn": data.get("vpn", False),
-            "proxy": data.get("proxy", False),
-            "tor": data.get("tor", False),
-            "risk_score": data.get("fraud_score", 0)
-        }
-    except Exception as e:
-        print(f"[VPNCheckError] for {ip} → {e}")
-        return {
-            "vpn": False,
-            "proxy": False,
-            "tor": False,
-            "risk_score": 0
-        }
+        return "0,0", "Unknown", "Unknown", "Unknown"
 
 def generate_event_id():
     return str(uuid.uuid4())
@@ -153,15 +81,7 @@ def log_event(ip, ua, msg, path, method, params=None):
     except:
         client_hostname = request.headers.get("REMOTE_HOST", "Unknown")
 
-    geo_info = get_geo_info(ip)
-    loc = geo_info["coordinates"]
-    city = geo_info["city"]
-    country = geo_info["country"]
-    org = geo_info["org"]
-    is_vpn = geo_info["is_vpn"]
-    is_proxy = geo_info["is_proxy"]
-    is_tor = geo_info["is_tor"]
-    risk_score = geo_info["risk_score"]
+    loc, city, country, org = get_geo_info(ip)
 
     try:
         server_hostname = socket.gethostname()
@@ -174,18 +94,6 @@ def log_event(ip, ua, msg, path, method, params=None):
     data_hash = hash_data(json.dumps(params or {}))
     integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
 
-    # Add VPN/Proxy warning to message if detected
-    network_type = []
-    if is_vpn:
-        network_type.append("VPN")
-    if is_proxy:
-        network_type.append("Proxy")
-    if is_tor:
-        network_type.append("Tor")
-    
-    network_status = " | ".join(network_type) if network_type else "Direct Connection"
-    risk_warning = f" (High Risk: {risk_score})" if risk_score > 75 else ""
-
     log_entry = (
         f"EventID: {event_id}\n"
         f"Timestamp: {timestamp}\n"
@@ -194,7 +102,6 @@ def log_event(ip, ua, msg, path, method, params=None):
         f"Client Hostname: {client_hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
         f"ISP/Org: {org}\n"
-        f"Network Type: {network_status}{risk_warning}\n"
         f"Method: {method}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
@@ -209,25 +116,23 @@ def log_event(ip, ua, msg, path, method, params=None):
     with open(LOG_PATH, 'a') as f:
         f.write(log_entry)
 
-    if EMAIL_ALERTS and ("Suspicious" in msg or risk_score > 75 or is_vpn or is_proxy or is_tor):
-        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, network_status, risk_score)
+    if EMAIL_ALERTS and "Suspicious" in msg:
+        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id)
 
-def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, network_status, risk_score):
+def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id):
     body = (
         f"Suspicious Activity Detected!\n\n"
         f"Event ID: {event_id}\n"
         f"IP: {ip}\n"
         f"Hostname: {hostname}\n"
         f"Location: {loc} ({city}, {country})\n"
-        f"Network Type: {network_status}\n"
-        f"Risk Score: {risk_score}\n"
         f"Event: {msg}\n"
         f"Path: {path}\n"
         f"User-Agent: {ua}\n"
         f"Time: {datetime.now().isoformat()}"
     )
     msg_obj = MIMEText(body)
-    msg_obj['Subject'] = f"Alert: Suspicious Activity ({risk_score} risk)" if risk_score > 0 else "Alert: Suspicious Activity"
+    msg_obj['Subject'] = "Alert: Suspicious Activity Detected"
     msg_obj['From'] = 'alert@yourdomain.com'
     msg_obj['To'] = EMAIL_TO
     try:
@@ -240,19 +145,16 @@ def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, 
 def detect_attack(data):
     patterns = ["<script>", "onerror=", "' OR 1=1", "--", "DROP TABLE", "javascript:"]
     for val in data.values():
-        if isinstance(val, str):
-            for pat in patterns:
-                if pat.lower() in val.lower():
-                    return True
+        for pat in patterns:
+            if pat.lower() in val.lower():
+                return True
     return False
 
 @app.before_request
 def block_banned_ips():
     ip = get_client_ip()
     if ip in BAN_LIST:
-        geo_info = get_geo_info(ip)
-        risk_warning = f" (Risk Score: {geo_info['risk_score']})" if geo_info['risk_score'] > 0 else ""
-        return f"403 Forbidden - You are banned{risk_warning}", 403
+        return "403 Forbidden - You are banned", 403
 
 @app.route('/healthz')
 def health():
@@ -269,13 +171,6 @@ def index():
 def login():
     ip = get_client_ip()
     ua = request.headers.get('User-Agent')
-    geo_info = get_geo_info(ip)
-    
-    # Check if high risk connection
-    if geo_info['risk_score'] > 85:
-        log_event(ip, ua, "Suspicious: High Risk Connection Detected", request.path, request.method)
-        return "Access denied due to high risk connection", 403
-        
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
