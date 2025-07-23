@@ -1,2 +1,6 @@
-Flask
-gunicorn==21.2.0
+Flask==2.0.1
+Werkzeug==2.0.1
+user-agents==2.2.0
+python-geoip==1.2
+python-geoip-geolite2==2015.303
+requests==2.26.0

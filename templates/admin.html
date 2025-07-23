@@ -1,20 +1,146 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Admin Panel</title>
-    <style>
-        body { font-family: Arial; margin: 20px; background: #f4f4f4; }
-        h1 { color: #333; }
-        pre { background: #fff; padding: 10px; border: 1px solid #ccc; }
-    </style>
-</head>
-<body>
-    <h1>Admin Panel</h1>
-    <h2>Forensic Logs:</h2>
-    <pre>
-    {% for line in logs %}
-        {{ line }}
-    {% endfor %}
-    </pre>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Admin Panel{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <h1 class="mt-4 mb-4">Admin Panel</h1>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>User Management</h2>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Admin</th>
+                                <th>Last Login</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>{{ user['id'] }}</td>
+                                <td>{{ user['username'] }}</td>
+                                <td>{{ user['email'] }}</td>
+                                <td>{{ 'Yes' if user['is_admin'] else 'No' }}</td>
+                                <td>{{ user['last_login'] or 'Never' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>Active Sessions</h2>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>IP Address</th>
+                                <th>User Agent</th>
+                                <th>Created</th>
+                                <th>Expires</th>
+                                <th>Session Cookie</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for session in session_info %}
+                            <tr>
+                                <td>{{ session['username'] }} ({{ 'Admin' if session['is_admin'] else 'User' }})</td>
+                                <td>{{ session['ip_address'] }}</td>
+                                <td>{{ session['user_agent']|truncate(30) }}</td>
+                                <td>{{ session['created_at'] }}</td>
+                                <td>{{ session['expires_at'] }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" type="button" data-toggle="collapse" 
+                                        data-target="#session-{{ loop.index }}" aria-expanded="false">
+                                        View Session
+                                    </button>
+                                    <div class="collapse mt-2" id="session-{{ loop.index }}">
+                                        <div class="card card-body">
+                                            <pre>{{ session['session_data'] }}</pre>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center">No active sessions</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>Activity Logs</h2>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>User</th>
+                                <th>Action</th>
+                                <th>IP Address</th>
+                                <th>Location</th>
+                                <th>Details</th>
+                                <th>Session</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                            <tr>
+                                <td>{{ log['timestamp'] }}</td>
+                                <td>{{ log['username'] or 'System' }}</td>
+                                <td>{{ log['action'] }}</td>
+                                <td>{{ log['ip_address'] }}</td>
+                                <td>
+                                    {% if log['location'].error %}
+                                        <span class="text-danger">Error</span>
+                                    {% else %}
+                                        {{ log['location'].city }}, {{ log['location'].country }}<br>
+                                        <small>{{ log['location'].isp }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ log['details']|default('', true) }}</td>
+                                <td>
+                                    {% if log['session_cookie'] %}
+                                        <button class="btn btn-sm btn-info" type="button" data-toggle="collapse" 
+                                            data-target="#log-session-{{ loop.index }}" aria-expanded="false">
+                                            View Session
+                                        </button>
+                                        <div class="collapse mt-2" id="log-session-{{ loop.index }}">
+                                            <div class="card card-body">
+                                                <pre>{{ log['session_cookie'] }}</pre>
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted">None</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

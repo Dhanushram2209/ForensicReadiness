@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Search{% endblock %}
+
+{% block content %}
+    <h1>Search</h1>
+    
+    <form method="POST" action="{{ url_for('search') }}">
+        <div class="form-group">
+            <label for="query">Search Query:</label>
+            <input type="text" id="query" name="query" required>
+        </div>
+        <button type="submit" class="button">Search</button>
+    </form>
+    
+    {% if results %}
+    <div class="search-results">
+        <h2>Results</h2>
+        <ul>
+            {% for result in results %}
+                <li>{{ result|safe }}</li>  <!-- Vulnerable: using |safe filter -->
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    
+    <div class="security-note">
+        <h3>Security Note</h3>
+        <p>This search feature is intentionally vulnerable to Cross-Site Scripting (XSS) attacks.</p>
+        <p>Try entering: <code>&lt;script&gt;alert('XSS')&lt;/script&gt;</code></p>
+    </div>
+{% endblock %}

@@ -1,223 +1,421 @@
-from flask import Flask, request, render_template, redirect, url_for, session
-import hashlib, time, os, json, urllib.request, socket, uuid
-from datetime import datetime
-import smtplib
-from email.mime.text import MIMEText
+import os
+import sqlite3
+import logging
+import requests
+import uuid
+from logging.handlers import RotatingFileHandler
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'supersecretkey')
+app.config.from_pyfile('config.py')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)  # Session expires after 1 hour
+app.config['DATABASE'] = 'database.db'
 
-LOG_DIR = 'logs'
-LOG_PATH = os.path.join(LOG_DIR, 'activity.log')
-BAN_LIST = set()
-FAILED_LOGINS = {}
+# Configure logging
+if not os.path.exists('logs'):
+    os.mkdir('logs')
 
-EMAIL_ALERTS = True
-EMAIL_TO = os.environ.get('EMAIL_TO', 'saran2209kumar@gmail.com')
-IPQS_API_KEY = "oAidb6T6KPlYfWwBTrNqbyK7ahpK8IlY"  # Provided by user
+# Access logs
+access_handler = RotatingFileHandler('logs/access.log', maxBytes=10240, backupCount=10)
+access_handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+))
+access_handler.setLevel(logging.INFO)
+app.logger.addHandler(access_handler)
 
-os.makedirs(LOG_DIR, exist_ok=True)
+# Security logs
+security_handler = RotatingFileHandler('logs/security.log', maxBytes=10240, backupCount=10)
+security_handler.setFormatter(logging.Formatter(
+    '%(asctime)s SECURITY: %(message)s [IP: %(clientip)s] [User: %(user)s]'
+))
+security_logger = logging.getLogger('security')
+security_logger.addHandler(security_handler)
+security_logger.setLevel(logging.WARNING)
 
-def get_client_ip():
-    forwarded = request.headers.get('X-Forwarded-For', '')
-    return forwarded.split(',')[0].strip() if forwarded else request.remote_addr
+def get_db():
+    """Get a database connection with row factory"""
+    db = sqlite3.connect(app.config['DATABASE'])
+    db.row_factory = sqlite3.Row
+    return db
 
-def is_internal_ip(ip):
-    return ip.startswith(("127.", "10.", "192.168.", "172.", "169.254.", "0."))
+def init_db():
+    """Initialize the database with required tables"""
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        
+        # Drop tables if they exist (for clean initialization)
+        cursor.executescript('''
+            DROP TABLE IF EXISTS users;
+            DROP TABLE IF EXISTS activity_logs;
+            DROP TABLE IF EXISTS user_sessions;
+        ''')
+        
+        # Create users table
+        cursor.execute('''
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            email TEXT,
+            is_admin INTEGER DEFAULT 0,
+            last_login DATETIME
+        )
+        ''')
+        
+        # Create activity logs table
+        cursor.execute('''
+        CREATE TABLE activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            ip_address TEXT,
+            details TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+        ''')
+        
+        # Create sessions table with proper columns
+        cursor.execute('''
+        CREATE TABLE user_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            session_id TEXT NOT NULL UNIQUE,
+            ip_address TEXT NOT NULL,
+            user_agent TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            session_data TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+        ''')
+        
+        # Insert default admin user
+        admin_password = generate_password_hash('Admin@Secure123!')
+        user_password = generate_password_hash('User@Password456$')
+        
+        cursor.execute('''
+            INSERT INTO users (username, password, email, is_admin) 
+            VALUES (?, ?, ?, ?)
+        ''', ('admin', admin_password, 'admin@example.com', 1))
+        
+        cursor.execute('''
+            INSERT INTO users (username, password, email) 
+            VALUES (?, ?, ?)
+        ''', ('user1', user_password, 'user1@example.com'))
+        
+        db.commit()
+        db.close()
 
-def get_hostname(ip):
-    if is_internal_ip(ip):
-        return "Internal IP"
+# Initialize the database
+init_db()
+
+def get_ip_geolocation(ip_address):
     try:
-        return socket.gethostbyaddr(ip)[0]
-    except:
-        return "Unknown"
-
-def get_geo_info(ip):
-    if is_internal_ip(ip):
-        return "0,0", "Internal Network", "N/A", "Private IP", False, False, False, {}
-
-    try:
-        url = f"https://ipqualityscore.com/api/json/ip/{IPQS_API_KEY}/{ip}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as res:
-            data = json.loads(res.read().decode())
-
-            lat = data.get("latitude", 0)
-            lon = data.get("longitude", 0)
-            city = data.get("city", "Unknown")
-            region = data.get("region", "")
-            country = data.get("country_code", "Unknown")
-            org = data.get("ISP", data.get("organization", "Unknown"))
-
-            vpn = data.get("vpn", False)
-            proxy = data.get("proxy", False)
-            hosting = data.get("hosting", False)
-            tor = data.get("tor", False)
-
-            metadata = {
-                "vpn": vpn,
-                "proxy": proxy,
-                "hosting": hosting,
-                "tor": tor,
-                "connection_type": data.get("connection_type", "Unknown"),
-                "abuse_score": data.get("fraud_score", "Unknown"),
-                "region": region,
-                "vpn_provider": data.get("provider", "Unknown"),
-                "asn": data.get("ASN", "Unknown"),
-                "mobile": data.get("mobile", False),
-                "bot_status": data.get("is_bot", False),
+        if ip_address == '127.0.0.1':
+            return {'city': 'Localhost', 'country': 'Development'}
+        
+        response = requests.get(
+            f'http://ip-api.com/json/{ip_address}?fields=status,message,country,regionName,city,isp,query',
+            timeout=3
+        )
+        data = response.json()
+        
+        if data.get('status') == 'success':
+            return {
+                'city': data.get('city', 'Unknown'),
+                'region': data.get('regionName', 'Unknown'),
+                'country': data.get('country', 'Unknown'),
+                'isp': data.get('isp', 'Unknown'),
+                'ip': data.get('query', ip_address)
             }
-
-            return f"{lat},{lon}", f"{city}, {region}", country, org, vpn, proxy, hosting, metadata
+        return {'error': data.get('message', 'Unknown error')}
     except Exception as e:
-        print(f"[GeoError] {ip} → {e}")
-        return "0,0", "Unknown", "Unknown", "Unknown", False, False, False, {}
-
-def generate_event_id():
-    return str(uuid.uuid4())
-
-def hash_data(data):
-    return hashlib.sha256(data.encode()).hexdigest()
-
-def log_event(ip, ua, msg, path, method, params=None):
-    event_id = generate_event_id()
-    hostname = get_hostname(ip)
-    loc, city, country, org, vpn, proxy, hosting, metadata = get_geo_info(ip)
-
-    try:
-        server_hostname = socket.gethostname()
-        server_ip = socket.gethostbyname(server_hostname)
-    except:
-        server_hostname = server_ip = "Unknown"
-
-    timestamp = datetime.now().isoformat()
-    data_hash = hash_data(json.dumps(params or {}))
-    integrity_hash = hash_data(f"{event_id}{timestamp}{ip}{msg}")
-
-    vpn_details = (
-        f"VPN: {vpn} | Proxy: {proxy} | Hosting: {hosting} | Tor: {metadata.get('tor')} | "
-        f"Provider: {metadata.get('vpn_provider')} | ASN: {metadata.get('asn')} | "
-        f"ConnType: {metadata.get('connection_type')} | Abuse: {metadata.get('abuse_score')}"
-    )
-
-    log_entry = (
-        f"EventID: {event_id}\n"
-        f"Timestamp: {timestamp}\n"
-        f"IP Address: {ip}\n"
-        f"Resolved Hostname: {hostname}\n"
-        f"Location: {loc} ({city}, {country})\n"
-        f"ISP/Org: {org}\n"
-        f"VPN/Proxy/Hosting Details: {vpn_details}\n"
-        f"Method: {method}\n"
-        f"Path: {path}\n"
-        f"User-Agent: {ua}\n"
-        f"Event: {msg}\n"
-        f"Server Hostname: {server_hostname}\n"
-        f"Server Internal IP: {server_ip}\n"
-        f"DataHash: {data_hash}\n"
-        f"IntegrityHash: {integrity_hash}\n"
-        f"{'-'*60}\n"
-    )
-
-    with open(LOG_PATH, 'a') as f:
-        f.write(log_entry)
-
-    if EMAIL_ALERTS and ("Suspicious" in msg or vpn or proxy or hosting):
-        send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, vpn_details)
-
-def send_email_alert(ip, hostname, msg, path, loc, city, country, ua, event_id, vpn_details):
-    body = (
-        f"Suspicious Activity Detected!\n\n"
-        f"Event ID: {event_id}\n"
-        f"IP: {ip}\n"
-        f"Hostname: {hostname}\n"
-        f"Location: {loc} ({city}, {country})\n"
-        f"{vpn_details}\n"
-        f"Event: {msg}\n"
-        f"Path: {path}\n"
-        f"User-Agent: {ua}\n"
-        f"Time: {datetime.now().isoformat()}"
-    )
-    msg_obj = MIMEText(body)
-    msg_obj['Subject'] = "Alert: Suspicious Activity Detected"
-    msg_obj['From'] = 'alert@yourdomain.com'
-    msg_obj['To'] = EMAIL_TO
-    try:
-        s = smtplib.SMTP('localhost')
-        s.send_message(msg_obj)
-        s.quit()
-    except Exception as e:
-        print("Email failed:", e)
-
-def detect_attack(data):
-    patterns = ["<script>", "onerror=", "' OR 1=1", "--", "DROP TABLE", "javascript:"]
-    for val in data.values():
-        for pat in patterns:
-            if pat.lower() in val.lower():
-                return True
-    return False
+        return {'error': str(e)}
 
 @app.before_request
-def block_banned_ips():
-    ip = get_client_ip()
-    if ip in BAN_LIST:
-        return "403 Forbidden - You are banned", 403
-    _, _, _, _, vpn, proxy, hosting, metadata = get_geo_info(ip)
-    if vpn or proxy or hosting or metadata.get("tor"):
-        return "Access Denied – VPN/Proxy/Tor not allowed", 403
+def before_request():
+    """Clean up expired sessions before each request"""
+    if 'session_identifier' in session:
+        try:
+            db = get_db()
+            db.execute('''
+                DELETE FROM user_sessions 
+                WHERE expires_at < datetime('now') OR session_id = ?
+            ''', (session['session_identifier'],))
+            db.commit()
+            db.close()
+        except Exception as e:
+            app.logger.error(f"Error cleaning sessions: {str(e)}")
 
-@app.route('/healthz')
-def health():
-    return "OK", 200
+@app.after_request
+def apply_security_headers(response):
+    """Add security headers to each response"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    if not app.debug:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:"
+    )
+    return response
+
+def log_activity(user_id, action, ip_address, details=None):
+    """Log user activity to the database"""
+    try:
+        db = get_db()
+        db.execute('''
+            INSERT INTO activity_logs (user_id, action, ip_address, details) 
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, action, ip_address, details))
+        db.commit()
+        db.close()
+    except Exception as e:
+        app.logger.error(f"Error logging activity: {str(e)}")
 
 @app.route('/')
 def index():
-    ip = get_client_ip()
-    ua = request.headers.get('User-Agent')
-    log_event(ip, ua, "Visited Home Page", request.path, request.method)
+    if 'username' in session:
+        return redirect(url_for('dashboard'))
     return render_template('index.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    ip = get_client_ip()
-    ua = request.headers.get('User-Agent')
     if request.method == 'POST':
-        username = request.form.get('username', '')
+        username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        data = {'username': username, 'password': password}
-
-        if detect_attack(data):
-            log_event(ip, ua, "Suspicious: Injection Attempt", request.path, request.method, data)
-            return "Attack Detected", 403
-
-        if username == 'admin' and password == 'password':
-            session['user'] = username
-            log_event(ip, ua, "Successful Login", request.path, request.method, data)
-            return redirect(url_for('admin'))
-        else:
-            FAILED_LOGINS[ip] = FAILED_LOGINS.get(ip, 0) + 1
-            if FAILED_LOGINS[ip] >= 5:
-                BAN_LIST.add(ip)
-                log_event(ip, ua, "IP Banned due to Brute Force", request.path, request.method)
+        
+        try:
+            db = get_db()
+            user = db.execute('''
+                SELECT * FROM users WHERE username = ?
+            ''', (username,)).fetchone()
+            
+            if user and check_password_hash(user['password'], password):
+                # Generate unique session ID
+                session_identifier = str(uuid.uuid4())
+                expires_at = datetime.now() + app.config['PERMANENT_SESSION_LIFETIME']
+                
+                # Set session data
+                session.permanent = True
+                session['user_id'] = user['id']
+                session['username'] = user['username']
+                session['is_admin'] = user['is_admin']
+                session['session_identifier'] = session_identifier
+                
+                # Store session in database
+                db.execute('''
+                    INSERT INTO user_sessions 
+                    (user_id, session_id, ip_address, user_agent, expires_at, session_data) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    user['id'],
+                    session_identifier,
+                    request.remote_addr,
+                    request.headers.get('User-Agent'),
+                    expires_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    str(dict(session))
+                ))
+                
+                # Update last login
+                db.execute('''
+                    UPDATE users SET last_login = datetime('now') WHERE id = ?
+                ''', (user['id'],))
+                
+                db.commit()
+                
+                log_activity(user['id'], 'LOGIN', request.remote_addr)
+                security_logger.info('Successful login', extra={
+                    'clientip': request.remote_addr,
+                    'user': username
+                })
+                
+                flash('Logged in successfully!', 'success')
+                return redirect(url_for('dashboard'))
             else:
-                log_event(ip, ua, "Failed Login Attempt", request.path, request.method)
-            return "Invalid credentials", 401
-    else:
-        log_event(ip, ua, "Visited Login Page", request.path, request.method)
-        return render_template('login.html')
+                security_logger.warning('Failed login attempt', extra={
+                    'clientip': request.remote_addr,
+                    'user': username
+                })
+                flash('Invalid username or password', 'danger')
+        except Exception as e:
+            app.logger.error(f"Login error: {str(e)}")
+            flash('An error occurred during login', 'danger')
+        finally:
+            db.close()
+    
+    return render_template('login.html')
+
+@app.route('/dashboard')
+def dashboard():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    log_activity(session['user_id'], 'DASHBOARD_ACCESS', request.remote_addr)
+    return render_template('dashboard.html', username=session['username'])
+
+@app.route('/search', methods=['GET', 'POST'])
+def search():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    results = []
+    if request.method == 'POST':
+        query = html.escape(request.form.get('query', '').strip())
+        if query:
+            results.append(f"Search result for: {query}")
+            log_activity(session['user_id'], 'SEARCH', request.remote_addr, f"Query: {query}")
+    
+    return render_template('search.html', results=results)
+
+@app.route('/profile')
+def profile():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    user_id = session.get('user_id')  # Only allow viewing own profile
+    try:
+        db = get_db()
+        user = db.execute('''
+            SELECT username, email, last_login FROM users WHERE id = ?
+        ''', (user_id,)).fetchone()
+        db.close()
+        
+        if user:
+            log_activity(session['user_id'], 'PROFILE_VIEW', request.remote_addr)
+            return render_template('profile.html', user=user)
+    except Exception as e:
+        app.logger.error(f"Profile error: {str(e)}")
+    
+    abort(404)
 
 @app.route('/admin')
 def admin():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    ip = get_client_ip()
-    ua = request.headers.get('User-Agent')
-    log_event(ip, ua, "Accessed Admin Panel", request.path, request.method)
-    with open(LOG_PATH, 'r') as f:
-        logs = f.readlines()
-    return render_template('admin.html', logs=logs)
+    if 'username' not in session or not session.get('is_admin'):
+        abort(403)
+    
+    try:
+        db = get_db()
+        
+        # Get all users
+        users = db.execute('SELECT * FROM users').fetchall()
+        
+        # Get activity logs with session data - fixed query
+        logs = []
+        log_records = db.execute('''
+            SELECT 
+                activity_logs.*, 
+                users.username,
+                user_sessions.session_data
+            FROM activity_logs 
+            LEFT JOIN users ON activity_logs.user_id = users.id 
+            LEFT JOIN user_sessions ON 
+                activity_logs.user_id = user_sessions.user_id AND
+                abs(strftime('%s', activity_logs.timestamp) - strftime('%s', user_sessions.created_at)) < 5
+            ORDER BY activity_logs.timestamp DESC 
+            LIMIT 100
+        ''').fetchall()
+        
+        for log in log_records:
+            logs.append({
+                'id': log['id'],
+                'user_id': log['user_id'],
+                'username': log['username'],
+                'action': log['action'],
+                'timestamp': log['timestamp'],
+                'ip_address': log['ip_address'],
+                'details': log['details'],
+                'location': get_ip_geolocation(log['ip_address']),
+                'session_cookie': log['session_data']
+            })
+        
+        # Get active sessions - fixed query
+        session_info = []
+        session_records = db.execute('''
+            SELECT 
+                user_sessions.*, 
+                users.username, 
+                users.is_admin
+            FROM user_sessions
+            JOIN users ON user_sessions.user_id = users.id
+            WHERE user_sessions.expires_at > datetime('now')
+            ORDER BY user_sessions.created_at DESC
+        ''').fetchall()
+        
+        for sess in session_records:
+            session_info.append({
+                'user_id': sess['user_id'],
+                'username': sess['username'],
+                'is_admin': sess['is_admin'],
+                'ip_address': sess['ip_address'],
+                'user_agent': sess['user_agent'],
+                'created_at': sess['created_at'],
+                'expires_at': sess['expires_at'],
+                'session_data': sess['session_data']
+            })
+        
+        db.close()
+        
+        return render_template(
+            'admin.html',
+            users=users,
+            logs=logs,
+            session_info=session_info,
+            debug_mode=app.debug
+        )
+    except Exception as e:
+        app.logger.error(f"Admin panel error: {str(e)}")
+        abort(500)
+
+@app.route('/logout')
+def logout():
+    if 'user_id' in session:
+        try:
+            db = get_db()
+            db.execute('''
+                DELETE FROM user_sessions WHERE session_id = ?
+            ''', (session.get('session_identifier'),))
+            db.commit()
+            db.close()
+            
+            log_activity(session['user_id'], 'LOGOUT', request.remote_addr)
+            security_logger.info('User logged out', extra={
+                'clientip': request.remote_addr,
+                'user': session.get('username')
+            })
+        except Exception as e:
+            app.logger.error(f"Logout error: {str(e)}")
+        
+        session.clear()
+        flash('You have been logged out.', 'info')
+    return redirect(url_for('index'))
+
+@app.errorhandler(403)
+def forbidden(error):
+    security_logger.warning('403 Forbidden', extra={
+        'clientip': request.remote_addr,
+        'user': session.get('username', 'anonymous')
+    })
+    return render_template('error.html', error_code=403, error_message="Forbidden"), 403
+
+@app.errorhandler(404)
+def not_found(error):
+    return render_template('error.html', error_code=404, error_message="Page not found"), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    security_logger.error('500 Internal Server Error', extra={
+        'clientip': request.remote_addr,
+        'user': session.get('username', 'anonymous')
+    })
+    return render_template('error.html', error_code=500, error_message="Internal server error"), 500
 
 if __name__ == '__main__':
-    from werkzeug.serving import run_simple
-    run_simple("0.0.0.0", int(os.environ.get("PORT", 5000)), app)
+    app.run(debug=True)

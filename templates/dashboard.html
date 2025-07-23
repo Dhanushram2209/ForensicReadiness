@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+    <h1>Dashboard</h1>
+    <p>Welcome back, {{ username }}!</p>
+    
+    <div class="dashboard-cards">
+        <div class="card">
+            <h3>Your Activity</h3>
+            <p>View your recent actions on the system.</p>
+            <a href="{{ url_for('profile', user_id=session['user_id']) }}" class="button">View Profile</a>
+        </div>
+        
+        <div class="card">
+            <h3>Search</h3>
+            <p>Try our vulnerable search feature.</p>
+            <a href="{{ url_for('search') }}" class="button">Go to Search</a>
+        </div>
+        
+        {% if session.get('is_admin') %}
+        <div class="card">
+            <h3>Admin Panel</h3>
+            <p>Access administrative functions.</p>
+            <a href="{{ url_for('admin') }}" class="button">Admin Panel</a>
+        </div>
+        {% endif %}
+    </div>
+{% endblock %}

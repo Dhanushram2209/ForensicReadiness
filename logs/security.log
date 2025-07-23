@@ -1,0 +1,6 @@
+2025-07-23 15:50:46,152 SECURITY: Failed login attempt [IP: 127.0.0.1] [User: admin ]
+2025-07-23 15:52:00,929 SECURITY: Failed login attempt [IP: 127.0.0.1] [User: user1 ]
+2025-07-23 17:16:43,016 SECURITY: 500 Internal Server Error [IP: 127.0.0.1] [User: admin]
+2025-07-23 17:16:43,058 SECURITY: 500 Internal Server Error [IP: 127.0.0.1] [User: admin]
+2025-07-23 17:20:22,143 SECURITY: 500 Internal Server Error [IP: 127.0.0.1] [User: admin]
+2025-07-23 17:20:22,189 SECURITY: 500 Internal Server Error [IP: 127.0.0.1] [User: admin]

@@ -1,0 +1,82 @@
+2025-07-23 17:16:43,013 ERROR: Exception on /login [POST] [in C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py:1454]
+Traceback (most recent call last):
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 2070, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1515, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1513, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1499, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**req.view_args)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "c:\Users\dhanu\Desktop\ForensicReadiness\app.py", line 196, in login
+    conn.execute('''
+    ~~~~~~~~~~~~^^^^
+        INSERT INTO user_sessions
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+        str(dict(session))
+        ^^^^^^^^^^^^^^^^^^
+    ))
+    ^^
+sqlite3.OperationalError: table user_sessions has no column named session_id
+2025-07-23 17:16:43,056 ERROR: Exception on /static/style.css [GET] [in C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py:1454]
+Traceback (most recent call last):
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 2070, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1515, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1511, in full_dispatch_request
+    rv = self.preprocess_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1857, in preprocess_request
+    rv = self.ensure_sync(func)()
+  File "c:\Users\dhanu\Desktop\ForensicReadiness\app.py", line 133, in before_request
+    conn.execute('''
+    ~~~~~~~~~~~~^^^^
+        DELETE FROM user_sessions
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+        WHERE expires_at < datetime('now') OR session_id = ?
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ''', (session['session_identifier'],))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: expires_at
+2025-07-23 17:20:22,141 ERROR: Exception on / [GET] [in C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py:1454]
+Traceback (most recent call last):
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 2070, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1515, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1511, in full_dispatch_request
+    rv = self.preprocess_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1857, in preprocess_request
+    rv = self.ensure_sync(func)()
+  File "c:\Users\dhanu\Desktop\ForensicReadiness\app.py", line 133, in before_request
+    conn.execute('''
+    ~~~~~~~~~~~~^^^^
+        DELETE FROM user_sessions
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+        WHERE expires_at < datetime('now') OR session_id = ?
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ''', (session['session_identifier'],))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: expires_at
+2025-07-23 17:20:22,187 ERROR: Exception on /static/style.css [GET] [in C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py:1454]
+Traceback (most recent call last):
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 2070, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1515, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1511, in full_dispatch_request
+    rv = self.preprocess_request()
+  File "C:\Users\dhanu\AppData\Local\Programs\Python\Python313\Lib\site-packages\flask\app.py", line 1857, in preprocess_request
+    rv = self.ensure_sync(func)()
+  File "c:\Users\dhanu\Desktop\ForensicReadiness\app.py", line 133, in before_request
+    conn.execute('''
+    ~~~~~~~~~~~~^^^^
+        DELETE FROM user_sessions
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+        WHERE expires_at < datetime('now') OR session_id = ?
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ''', (session['session_identifier'],))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: expires_at

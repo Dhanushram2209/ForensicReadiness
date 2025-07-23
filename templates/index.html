@@ -1,8 +1,36 @@
-<!DOCTYPE html>
-<html>
-<head><title>Home</title></head>
-<body>
-    <h1>Welcome to Forensic Web App</h1>
-    <a href="/login">Go to Login</a>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+    <h1>Welcome to Forensic Ready Website</h1>
+    <p>This website demonstrates forensic readiness while containing intentional vulnerabilities for educational purposes.</p>
+    
+    {% if 'username' not in session %}
+        <div class="cta">
+            <a href="{{ url_for('login') }}" class="button">Login</a>
+        </div>
+    {% endif %}
+    
+    <div class="features">
+        <div class="feature">
+            <h3>Forensic Features</h3>
+            <ul>
+                <li>Comprehensive logging</li>
+                <li>Activity tracking</li>
+                <li>Security headers</li>
+                <li>Error handling</li>
+            </ul>
+        </div>
+        
+        <div class="feature">
+            <h3>Intentional Vulnerabilities</h3>
+            <ul>
+                <li>SQL Injection</li>
+                <li>Cross-Site Scripting (XSS)</li>
+                <li>Insecure Direct Object Reference (IDOR)</li>
+                <li>Command Injection (debug mode only)</li>
+            </ul>
+        </div>
+    </div>
+{% endblock %}
