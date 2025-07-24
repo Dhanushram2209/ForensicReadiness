@@ -1,16 +1,20 @@
+# app.py (fully updated)
 import os
 import sqlite3
 import logging
 import requests
 import uuid
+import html
+import subprocess
 from logging.handlers import RotatingFileHandler
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+import json
 
 app = Flask(__name__)
 app.config.from_pyfile('config.py')
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)  # Session expires after 1 hour
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 app.config['DATABASE'] = 'database.db'
 
 # Configure logging
@@ -51,6 +55,7 @@ def init_db():
             DROP TABLE IF EXISTS users;
             DROP TABLE IF EXISTS activity_logs;
             DROP TABLE IF EXISTS user_sessions;
+            DROP TABLE IF EXISTS attack_attempts;
         ''')
         
         # Create users table
@@ -61,7 +66,9 @@ def init_db():
             password TEXT NOT NULL,
             email TEXT,
             is_admin INTEGER DEFAULT 0,
-            last_login DATETIME
+            last_login DATETIME,
+            failed_attempts INTEGER DEFAULT 0,
+            account_locked INTEGER DEFAULT 0
         )
         ''')
         
@@ -74,11 +81,12 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             ip_address TEXT,
             details TEXT,
+            session_data TEXT,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
         ''')
         
-        # Create sessions table with proper columns
+        # Create sessions table
         cursor.execute('''
         CREATE TABLE user_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +98,19 @@ def init_db():
             expires_at DATETIME NOT NULL,
             session_data TEXT,
             FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+        ''')
+        
+        # Create attack attempts table
+        cursor.execute('''
+        CREATE TABLE attack_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            ip_address TEXT NOT NULL,
+            attack_type TEXT NOT NULL,
+            payload TEXT,
+            user_agent TEXT,
+            request_data TEXT
         )
         ''')
         
@@ -107,11 +128,19 @@ def init_db():
             VALUES (?, ?, ?)
         ''', ('user1', user_password, 'user1@example.com'))
         
+        # Add more test users
+        for i in range(2, 6):
+            cursor.execute('''
+                INSERT INTO users (username, password, email) 
+                VALUES (?, ?, ?)
+            ''', (f'user{i}', generate_password_hash(f'User{i}@Password$'), f'user{i}@example.com'))
+        
         db.commit()
         db.close()
 
 # Initialize the database
-init_db()
+if not os.path.exists(app.config['DATABASE']):
+    init_db()
 
 def get_ip_geolocation(ip_address):
     try:
@@ -136,20 +165,73 @@ def get_ip_geolocation(ip_address):
     except Exception as e:
         return {'error': str(e)}
 
+def log_attack_attempt(ip_address, attack_type, payload=None):
+    """Log security attack attempts"""
+    try:
+        db = get_db()
+        db.execute('''
+            INSERT INTO attack_attempts 
+            (ip_address, attack_type, payload, user_agent, request_data) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            ip_address,
+            attack_type,
+            str(payload)[:500],  # Limit payload size
+            request.headers.get('User-Agent'),
+            str(dict(request.values))[:1000]  # Limit request data size
+        ))
+        db.commit()
+        db.close()
+        
+        security_logger.warning(f'Attack attempt: {attack_type}', extra={
+            'clientip': ip_address,
+            'user': 'anonymous'
+        })
+    except Exception as e:
+        app.logger.error(f"Error logging attack attempt: {str(e)}")
+
+def log_activity(user_id, action, ip_address, details=None):
+    """Log user activity to the database"""
+    try:
+        db = get_db()
+        db.execute('''
+            INSERT INTO activity_logs (user_id, action, ip_address, details, session_data) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            user_id, 
+            action, 
+            ip_address, 
+            details,
+            json.dumps(dict(session))  # Store complete session data
+        ))
+        db.commit()
+        db.close()
+    except Exception as e:
+        app.logger.error(f"Error logging activity: {str(e)}")
+
 @app.before_request
 def before_request():
-    """Clean up expired sessions before each request"""
-    if 'session_identifier' in session:
-        try:
-            db = get_db()
-            db.execute('''
-                DELETE FROM user_sessions 
-                WHERE expires_at < datetime('now') OR session_id = ?
-            ''', (session['session_identifier'],))
-            db.commit()
-            db.close()
-        except Exception as e:
-            app.logger.error(f"Error cleaning sessions: {str(e)}")
+    """Clean up expired sessions and check for attacks before each request"""
+    # Check for SQL injection attempts
+    for key, value in request.values.items():
+        if any(sql_keyword in str(value).lower() for sql_keyword in ['select', 'union', 'insert', 'delete', 'drop', '--']):
+            log_attack_attempt(request.remote_addr, 'SQL Injection', value)
+    
+    # Check for XSS attempts
+    if any(xss_keyword in str(request.values) for xss_keyword in ['<script>', 'javascript:', 'onerror=', 'onload=']):
+        log_attack_attempt(request.remote_addr, 'XSS Attempt', str(request.values))
+    
+    # Clean up expired sessions
+    try:
+        db = get_db()
+        db.execute('''
+            DELETE FROM user_sessions 
+            WHERE expires_at < datetime('now')
+        ''')
+        db.commit()
+        db.close()
+    except Exception as e:
+        app.logger.error(f"Error cleaning sessions: {str(e)}")
 
 @app.after_request
 def apply_security_headers(response):
@@ -166,19 +248,6 @@ def apply_security_headers(response):
         "img-src 'self' data:"
     )
     return response
-
-def log_activity(user_id, action, ip_address, details=None):
-    """Log user activity to the database"""
-    try:
-        db = get_db()
-        db.execute('''
-            INSERT INTO activity_logs (user_id, action, ip_address, details) 
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, action, ip_address, details))
-        db.commit()
-        db.close()
-    except Exception as e:
-        app.logger.error(f"Error logging activity: {str(e)}")
 
 @app.route('/')
 def index():
@@ -198,7 +267,21 @@ def login():
                 SELECT * FROM users WHERE username = ?
             ''', (username,)).fetchone()
             
+            # Check if account is locked
+            if user and user['account_locked']:
+                security_logger.warning('Login attempt to locked account', extra={
+                    'clientip': request.remote_addr,
+                    'user': username
+                })
+                flash('This account is temporarily locked. Please try again later.', 'danger')
+                return redirect(url_for('login'))
+            
             if user and check_password_hash(user['password'], password):
+                # Reset failed attempts on successful login
+                db.execute('''
+                    UPDATE users SET failed_attempts = 0 WHERE id = ?
+                ''', (user['id'],))
+                
                 # Generate unique session ID
                 session_identifier = str(uuid.uuid4())
                 expires_at = datetime.now() + app.config['PERMANENT_SESSION_LIFETIME']
@@ -207,7 +290,7 @@ def login():
                 session.permanent = True
                 session['user_id'] = user['id']
                 session['username'] = user['username']
-                session['is_admin'] = user['is_admin']
+                session['is_admin'] = bool(user['is_admin'])  # Ensure boolean
                 session['session_identifier'] = session_identifier
                 
                 # Store session in database
@@ -221,7 +304,7 @@ def login():
                     request.remote_addr,
                     request.headers.get('User-Agent'),
                     expires_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    str(dict(session))
+                    json.dumps(dict(session))  # Store complete session data
                 ))
                 
                 # Update last login
@@ -231,7 +314,7 @@ def login():
                 
                 db.commit()
                 
-                log_activity(user['id'], 'LOGIN', request.remote_addr)
+                log_activity(user['id'], 'LOGIN', request.remote_addr, "Successful login")
                 security_logger.info('Successful login', extra={
                     'clientip': request.remote_addr,
                     'user': username
@@ -240,6 +323,22 @@ def login():
                 flash('Logged in successfully!', 'success')
                 return redirect(url_for('dashboard'))
             else:
+                # Increment failed attempts
+                if user:
+                    db.execute('''
+                        UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?
+                    ''', (user['id'],))
+                    # Lock account after 5 failed attempts
+                    if user['failed_attempts'] + 1 >= 5:
+                        db.execute('''
+                            UPDATE users SET account_locked = 1 WHERE id = ?
+                        ''', (user['id'],))
+                        security_logger.warning('Account locked due to too many failed attempts', extra={
+                            'clientip': request.remote_addr,
+                            'user': username
+                        })
+                db.commit()
+                
                 security_logger.warning('Failed login attempt', extra={
                     'clientip': request.remote_addr,
                     'user': username
@@ -258,7 +357,7 @@ def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
     
-    log_activity(session['user_id'], 'DASHBOARD_ACCESS', request.remote_addr)
+    log_activity(session['user_id'], 'DASHBOARD_ACCESS', request.remote_addr, "Accessed dashboard")
     return render_template('dashboard.html', username=session['username'])
 
 @app.route('/search', methods=['GET', 'POST'])
@@ -268,8 +367,9 @@ def search():
     
     results = []
     if request.method == 'POST':
-        query = html.escape(request.form.get('query', '').strip())
+        query = request.form.get('query', '').strip()
         if query:
+            # Intentional XSS vulnerability - no HTML escaping
             results.append(f"Search result for: {query}")
             log_activity(session['user_id'], 'SEARCH', request.remote_addr, f"Query: {query}")
     
@@ -280,7 +380,9 @@ def profile():
     if 'username' not in session:
         return redirect(url_for('login'))
     
-    user_id = session.get('user_id')  # Only allow viewing own profile
+    # Intentional IDOR vulnerability - user_id can be changed in URL
+    user_id = request.args.get('user_id', session.get('user_id'))
+    
     try:
         db = get_db()
         user = db.execute('''
@@ -289,7 +391,7 @@ def profile():
         db.close()
         
         if user:
-            log_activity(session['user_id'], 'PROFILE_VIEW', request.remote_addr)
+            log_activity(session['user_id'], 'PROFILE_VIEW', request.remote_addr, f"Viewed profile of user_id: {user_id}")
             return render_template('profile.html', user=user)
     except Exception as e:
         app.logger.error(f"Profile error: {str(e)}")
@@ -298,81 +400,101 @@ def profile():
 
 @app.route('/admin')
 def admin():
-    if 'username' not in session or not session.get('is_admin'):
+    if 'username' not in session:
         abort(403)
     
     try:
+        # Verify admin status directly from database
         db = get_db()
+        user = db.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],)).fetchone()
         
-        # Get all users
-        users = db.execute('SELECT * FROM users').fetchall()
-        
-        # Get activity logs with session data - fixed query
-        logs = []
-        log_records = db.execute('''
-            SELECT 
-                activity_logs.*, 
-                users.username,
-                user_sessions.session_data
-            FROM activity_logs 
-            LEFT JOIN users ON activity_logs.user_id = users.id 
-            LEFT JOIN user_sessions ON 
-                activity_logs.user_id = user_sessions.user_id AND
-                abs(strftime('%s', activity_logs.timestamp) - strftime('%s', user_sessions.created_at)) < 5
-            ORDER BY activity_logs.timestamp DESC 
-            LIMIT 100
-        ''').fetchall()
-        
-        for log in log_records:
-            logs.append({
-                'id': log['id'],
-                'user_id': log['user_id'],
-                'username': log['username'],
-                'action': log['action'],
-                'timestamp': log['timestamp'],
-                'ip_address': log['ip_address'],
-                'details': log['details'],
-                'location': get_ip_geolocation(log['ip_address']),
-                'session_cookie': log['session_data']
-            })
-        
-        # Get active sessions - fixed query
-        session_info = []
-        session_records = db.execute('''
-            SELECT 
-                user_sessions.*, 
-                users.username, 
-                users.is_admin
-            FROM user_sessions
-            JOIN users ON user_sessions.user_id = users.id
-            WHERE user_sessions.expires_at > datetime('now')
-            ORDER BY user_sessions.created_at DESC
-        ''').fetchall()
-        
-        for sess in session_records:
-            session_info.append({
-                'user_id': sess['user_id'],
-                'username': sess['username'],
-                'is_admin': sess['is_admin'],
-                'ip_address': sess['ip_address'],
-                'user_agent': sess['user_agent'],
-                'created_at': sess['created_at'],
-                'expires_at': sess['expires_at'],
-                'session_data': sess['session_data']
-            })
-        
-        db.close()
-        
-        return render_template(
-            'admin.html',
-            users=users,
-            logs=logs,
-            session_info=session_info,
-            debug_mode=app.debug
-        )
+        if not user or not user['is_admin']:
+            db.close()
+            abort(403)
+
+        # Get admin data with proper error handling
+        try:
+            users = db.execute('SELECT id, username, email, is_admin, last_login FROM users').fetchall()
+            
+            logs = []
+            log_records = db.execute('''
+                SELECT activity_logs.*, users.username 
+                FROM activity_logs 
+                LEFT JOIN users ON activity_logs.user_id = users.id 
+                ORDER BY activity_logs.timestamp DESC 
+                LIMIT 100
+            ''').fetchall()
+
+            for log in log_records:
+                try:
+                    session_data = json.loads(log['session_data']) if log['session_data'] else {}
+                except:
+                    session_data = {}
+                
+                logs.append({
+                    'id': log['id'],
+                    'username': log['username'],
+                    'action': log['action'],
+                    'timestamp': log['timestamp'],
+                    'ip_address': log['ip_address'],
+                    'location': get_ip_geolocation(log['ip_address'])
+                })
+
+            # Get active sessions
+            sessions = db.execute('''
+                SELECT user_sessions.*, users.username
+                FROM user_sessions
+                JOIN users ON user_sessions.user_id = users.id
+                WHERE user_sessions.expires_at > datetime('now')
+                ORDER BY user_sessions.created_at DESC
+            ''').fetchall()
+
+            # Get attack attempts
+            attacks = db.execute('''
+                SELECT * FROM attack_attempts 
+                ORDER BY timestamp DESC 
+                LIMIT 100
+            ''').fetchall()
+
+            db.close()
+
+            return render_template(
+                'admin.html',
+                users=users,
+                logs=logs,
+                sessions=sessions,
+                attacks=attacks
+            )
+
+        except sqlite3.Error as e:
+            app.logger.error(f"Database error in admin panel: {str(e)}")
+            db.close()
+            abort(500)
+
     except Exception as e:
         app.logger.error(f"Admin panel error: {str(e)}")
         abort(500)
+
+@app.route('/debug')
+def debug():
+    """Intentionally vulnerable debug endpoint"""
+    if not app.debug:
+        abort(404)
+    
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    # Command injection vulnerability
+    cmd = request.args.get('cmd', '')
+    output = ''
+    if cmd:
+        try:
+            output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True)
+        except Exception as e:
+            output = str(e)
+    
+    log_activity(session['user_id'], 'DEBUG_ACCESS', request.remote_addr, f"Command: {cmd}")
+    return render_template('debug.html', cmd=cmd, output=output)
 
 @app.route('/logout')
 def logout():
@@ -385,7 +507,7 @@ def logout():
             db.commit()
             db.close()
             
-            log_activity(session['user_id'], 'LOGOUT', request.remote_addr)
+            log_activity(session['user_id'], 'LOGOUT', request.remote_addr, "User logged out")
             security_logger.info('User logged out', extra={
                 'clientip': request.remote_addr,
                 'user': session.get('username')

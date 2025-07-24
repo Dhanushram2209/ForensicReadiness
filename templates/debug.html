@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Debug Console{% endblock %}
+
+{% block content %}
+    <h1>Debug Console</h1>
+    <p class="text-danger">WARNING: This is a development-only feature with intentional vulnerabilities!</p>
+    
+    <form method="GET" action="{{ url_for('debug') }}">
+        <div class="form-group">
+            <label for="cmd">Command:</label>
+            <input type="text" id="cmd" name="cmd" class="form-control" value="{{ cmd }}">
+        </div>
+        <button type="submit" class="btn btn-primary">Execute</button>
+    </form>
+    
+    {% if cmd %}
+    <div class="mt-4">
+        <h3>Output:</h3>
+        <pre class="bg-light p-3">{{ output }}</pre>
+    </div>
+    {% endif %}
+    
+    <div class="security-note mt-4">
+        <h3>Security Note</h3>
+        <p>This debug console is intentionally vulnerable to Command Injection attacks.</p>
+        <p>Try entering: <code>ls -la</code> or <code>cat /etc/passwd</code></p>
+    </div>
+{% endblock %}
