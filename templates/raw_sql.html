@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Raw SQL{% endblock %}
+
+{% block content %}
+    <h1>Raw SQL Execution</h1>
+    <p class="text-danger">WARNING: This is a highly dangerous feature with intentional SQL injection vulnerabilities!</p>
+    
+    <form method="POST" action="{{ url_for('raw_sql') }}">
+        <div class="form-group">
+            <label for="query">SQL Query:</label>
+            <textarea id="query" name="query" class="form-control" rows="5">{{ query }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Execute</button>
+    </form>
+    
+    {% if results %}
+    <div class="mt-4">
+        <h3>Results:</h3>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    {% if results and results[0] %}
+                        {% for key in results[0].keys() %}
+                            <th>{{ key }}</th>
+                        {% endfor %}
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in results %}
+                    <tr>
+                        {% for value in row.values() %}
+                            <td>{{ value }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    
+    <div class="security-note mt-4">
+        <h3>Security Note</h3>
+        <p>This SQL console is intentionally vulnerable to SQL Injection attacks.</p>
+        <p>Try entering: <code>SELECT * FROM users</code> or <code>DELETE FROM users WHERE id = 1</code></p>
+    </div>
+{% endblock %}
