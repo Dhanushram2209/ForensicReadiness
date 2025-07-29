@@ -57,11 +57,11 @@
                                 <th>User Agent</th>
                                 <th>Created</th>
                                 <th>Expires</th>
-                                <th>Session Cookie</th>
+                                <th>Session Data</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for session in session_info %}
+                            {% for session in sessions %}
                             <tr>
                                 <td>{{ session['username'] }} ({{ 'Admin' if session['is_admin'] else 'User' }})</td>
                                 <td>{{ session['ip_address'] }}</td>
@@ -82,7 +82,7 @@
                                     </button>
                                     <div class="collapse mt-2" id="session-{{ loop.index }}">
                                         <div class="card card-body">
-                                            <pre>{{ session['session_data'] }}</pre>
+                                            <pre>{{ session['session_data']|tojson(indent=2) }}</pre>
                                         </div>
                                     </div>
                                 </td>
@@ -133,14 +133,14 @@
                                 </td>
                                 <td>{{ log['details']|default('', true) }}</td>
                                 <td>
-                                    {% if log['session_cookie'] %}
+                                    {% if log['session_data'] %}
                                         <button class="btn btn-sm btn-info" type="button" data-toggle="collapse" 
                                             data-target="#log-session-{{ loop.index }}" aria-expanded="false">
                                             View Session
                                         </button>
                                         <div class="collapse mt-2" id="log-session-{{ loop.index }}">
                                             <div class="card card-body">
-                                                <pre>{{ log['session_cookie'] }}</pre>
+                                                <pre>{{ log['session_data']|tojson(indent=2) }}</pre>
                                             </div>
                                         </div>
                                     {% else %}
@@ -174,7 +174,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for attack in attack_attempts %}
+                            {% for attack in attacks %}
                             <tr>
                                 <td>{{ attack['timestamp'] }}</td>
                                 <td>{{ attack['ip_address'] }}</td>
@@ -204,6 +204,40 @@
                             {% else %}
                             <tr>
                                 <td colspan="7" class="text-center">No attack attempts detected</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>User Agent Statistics</h2>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>User Agent</th>
+                                <th>First Seen</th>
+                                <th>Last Seen</th>
+                                <th>Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ua in user_agents %}
+                            <tr>
+                                <td>{{ ua['user_agent']|truncate(50) }}</td>
+                                <td>{{ ua['first_seen'] }}</td>
+                                <td>{{ ua['last_seen'] }}</td>
+                                <td>{{ ua['count'] }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center">No user agents recorded</td>
                             </tr>
                             {% endfor %}
                         </tbody>

@@ -1,4 +1,4 @@
-# app.py (fully updated)
+# app.py - Forensic Ready Web Application
 import os
 import sqlite3
 import logging
@@ -6,37 +6,50 @@ import requests
 import uuid
 import html
 import subprocess
+import json
+import socket
 from logging.handlers import RotatingFileHandler
-from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
-import json
+from urllib.parse import urlparse
+from user_agents import parse
 
 app = Flask(__name__)
-app.config.from_pyfile('config.py')
+app.secret_key = os.urandom(24)  # Added secret key
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 app.config['DATABASE'] = 'database.db'
 
 # Configure logging
 if not os.path.exists('logs'):
-    os.mkdir('logs')
+    os.makedirs('logs')
 
-# Access logs
-access_handler = RotatingFileHandler('logs/access.log', maxBytes=10240, backupCount=10)
-access_handler.setFormatter(logging.Formatter(
-    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-))
-access_handler.setLevel(logging.INFO)
-app.logger.addHandler(access_handler)
+# Configure main logger
+app.logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 
-# Security logs
-security_handler = RotatingFileHandler('logs/security.log', maxBytes=10240, backupCount=10)
+# File handler without rotation (to avoid Windows file locking issues)
+file_handler = logging.FileHandler('logs/access.log')
+file_handler.setFormatter(formatter)
+app.logger.addHandler(file_handler)
+
+# Security logger
+security_logger = logging.getLogger('security')
+security_logger.setLevel(logging.WARNING)
+security_handler = logging.FileHandler('logs/security.log')
 security_handler.setFormatter(logging.Formatter(
     '%(asctime)s SECURITY: %(message)s [IP: %(clientip)s] [User: %(user)s]'
 ))
-security_logger = logging.getLogger('security')
 security_logger.addHandler(security_handler)
-security_logger.setLevel(logging.WARNING)
+
+# Activity logger
+activity_logger = logging.getLogger('activity')
+activity_handler = logging.FileHandler('logs/activity.log')
+activity_handler.setFormatter(logging.Formatter(
+    '%(asctime)s|%(username)s|%(activity_type)s|%(ip)s|%(location)s|%(details)s'
+))
+activity_logger.addHandler(activity_handler)
+activity_logger.setLevel(logging.INFO)
 
 def get_db():
     """Get a database connection with row factory"""
@@ -68,7 +81,8 @@ def init_db():
             is_admin INTEGER DEFAULT 0,
             last_login DATETIME,
             failed_attempts INTEGER DEFAULT 0,
-            account_locked INTEGER DEFAULT 0
+            account_locked INTEGER DEFAULT 0,
+            login_history TEXT DEFAULT '[]'
         )
         ''')
         
@@ -82,6 +96,8 @@ def init_db():
             ip_address TEXT,
             details TEXT,
             session_data TEXT,
+            user_agent TEXT,
+            location TEXT,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
         ''')
@@ -97,6 +113,7 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             expires_at DATETIME NOT NULL,
             session_data TEXT,
+            last_activity DATETIME,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
         ''')
@@ -110,7 +127,8 @@ def init_db():
             attack_type TEXT NOT NULL,
             payload TEXT,
             user_agent TEXT,
-            request_data TEXT
+            request_data TEXT,
+            location TEXT
         )
         ''')
         
@@ -145,7 +163,7 @@ if not os.path.exists(app.config['DATABASE']):
 def get_ip_geolocation(ip_address):
     try:
         if ip_address == '127.0.0.1':
-            return {'city': 'Localhost', 'country': 'Development'}
+            return {'city': 'Localhost', 'country': 'Development', 'isp': 'Local Network'}
         
         response = requests.get(
             f'http://ip-api.com/json/{ip_address}?fields=status,message,country,regionName,city,isp,query',
@@ -165,20 +183,53 @@ def get_ip_geolocation(ip_address):
     except Exception as e:
         return {'error': str(e)}
 
+def get_client_info():
+    """Get comprehensive client information"""
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ',' in ip:
+        ip = ip.split(',')[0].strip()
+
+    ua_string = request.headers.get('User-Agent', '')
+    user_agent = parse(ua_string)
+    geo_data = get_ip_geolocation(ip)
+    
+    return {
+        'ip': ip,
+        'user_agent': ua_string,
+        'headers': dict(request.headers),
+        'timestamp': datetime.now().isoformat(),
+        'geolocation': geo_data,
+        'method': request.method,
+        'path': request.path,
+        'query_params': dict(request.args),
+        'platform': user_agent.os.family,
+        'browser': user_agent.browser.family,
+        'version': user_agent.browser.version_string,
+        'is_mobile': user_agent.is_mobile,
+        'is_tablet': user_agent.is_tablet,
+        'is_pc': user_agent.is_pc,
+        'is_bot': user_agent.is_bot,
+        'device': user_agent.device.family
+    }
+
 def log_attack_attempt(ip_address, attack_type, payload=None):
     """Log security attack attempts"""
     try:
+        geo_data = get_ip_geolocation(ip_address)
+        location_str = f"{geo_data.get('city', 'Unknown')}, {geo_data.get('country', 'Unknown')}"
+        
         db = get_db()
         db.execute('''
             INSERT INTO attack_attempts 
-            (ip_address, attack_type, payload, user_agent, request_data) 
-            VALUES (?, ?, ?, ?, ?)
+            (ip_address, attack_type, payload, user_agent, request_data, location) 
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', (
             ip_address,
             attack_type,
-            str(payload)[:500],  # Limit payload size
+            str(payload)[:500],
             request.headers.get('User-Agent'),
-            str(dict(request.values))[:1000]  # Limit request data size
+            str(dict(request.values))[:1000],
+            location_str
         ))
         db.commit()
         db.close()
@@ -193,21 +244,61 @@ def log_attack_attempt(ip_address, attack_type, payload=None):
 def log_activity(user_id, action, ip_address, details=None):
     """Log user activity to the database"""
     try:
+        client_info = get_client_info()
+        geo_data = client_info['geolocation']
+        location_str = f"{geo_data.get('city', 'Unknown')}, {geo_data.get('country', 'Unknown')}"
+        
         db = get_db()
         db.execute('''
-            INSERT INTO activity_logs (user_id, action, ip_address, details, session_data) 
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO activity_logs 
+            (user_id, action, ip_address, details, session_data, user_agent, location) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             user_id, 
             action, 
             ip_address, 
             details,
-            json.dumps(dict(session))  # Store complete session data
+            json.dumps(dict(session)),
+            client_info['user_agent'],
+            location_str
         ))
         db.commit()
         db.close()
+        
+        # Also log to activity log file
+        username = session.get('username', 'system')
+        activity_logger.info('', extra={
+            'username': username,
+            'activity_type': action,
+            'ip': ip_address,
+            'location': location_str,
+            'details': details or ''
+        })
     except Exception as e:
         app.logger.error(f"Error logging activity: {str(e)}")
+
+def update_login_history(user_id, ip_address):
+    """Update user's login history"""
+    try:
+        db = get_db()
+        user = db.execute('SELECT login_history FROM users WHERE id = ?', (user_id,)).fetchone()
+        
+        history = json.loads(user['login_history']) if user['login_history'] else []
+        new_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'ip': ip_address,
+            'location': get_ip_geolocation(ip_address),
+            'user_agent': request.headers.get('User-Agent')
+        }
+        history.append(new_entry)
+        
+        db.execute('''
+            UPDATE users SET login_history = ? WHERE id = ?
+        ''', (json.dumps(history[-10:]), user_id))  # Keep last 10 logins
+        db.commit()
+        db.close()
+    except Exception as e:
+        app.logger.error(f"Error updating login history: {str(e)}")
 
 @app.before_request
 def before_request():
@@ -279,7 +370,7 @@ def login():
             if user and check_password_hash(user['password'], password):
                 # Reset failed attempts on successful login
                 db.execute('''
-                    UPDATE users SET failed_attempts = 0 WHERE id = ?
+                    UPDATE users SET failed_attempts = 0, last_login = datetime('now') WHERE id = ?
                 ''', (user['id'],))
                 
                 # Generate unique session ID
@@ -290,27 +381,27 @@ def login():
                 session.permanent = True
                 session['user_id'] = user['id']
                 session['username'] = user['username']
-                session['is_admin'] = bool(user['is_admin'])  # Ensure boolean
+                session['is_admin'] = bool(user['is_admin'])
                 session['session_identifier'] = session_identifier
                 
                 # Store session in database
+                client_info = get_client_info()
                 db.execute('''
                     INSERT INTO user_sessions 
-                    (user_id, session_id, ip_address, user_agent, expires_at, session_data) 
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (user_id, session_id, ip_address, user_agent, expires_at, session_data, last_activity) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     user['id'],
                     session_identifier,
                     request.remote_addr,
-                    request.headers.get('User-Agent'),
+                    client_info['user_agent'],
                     expires_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    json.dumps(dict(session))  # Store complete session data
+                    json.dumps(dict(session)),
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 ))
                 
-                # Update last login
-                db.execute('''
-                    UPDATE users SET last_login = datetime('now') WHERE id = ?
-                ''', (user['id'],))
+                # Update login history
+                update_login_history(user['id'], request.remote_addr)
                 
                 db.commit()
                 
@@ -371,6 +462,11 @@ def search():
         if query:
             # Intentional XSS vulnerability - no HTML escaping
             results.append(f"Search result for: {query}")
+            
+            # Hidden functionality - search also looks for admin credentials in system
+            if query.lower() in ["admin access", "system configuration", "temporary password", "admin@secure123!"]:
+                results.append("System Configuration Details:<br>Admin Access: username='admin'<br>Temporary Password: 'Admin@Secure123!'")
+            
             log_activity(session['user_id'], 'SEARCH', request.remote_addr, f"Query: {query}")
     
     return render_template('search.html', results=results)
@@ -403,77 +499,186 @@ def admin():
     if 'username' not in session:
         abort(403)
     
+    # Double-check admin status in database
     try:
-        # Verify admin status directly from database
         db = get_db()
         user = db.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-        
         if not user or not user['is_admin']:
             db.close()
             abort(403)
-
-        # Get admin data with proper error handling
-        try:
-            users = db.execute('SELECT id, username, email, is_admin, last_login FROM users').fetchall()
+        
+        # Get all users with login history
+        user_records = db.execute('SELECT id, username, email, is_admin, last_login, login_history FROM users').fetchall()
+        users = []
+        for user in user_records:
+            login_history = json.loads(user['login_history']) if user['login_history'] else []
+            users.append({
+                'id': user['id'],
+                'username': user['username'],
+                'email': user['email'],
+                'is_admin': bool(user['is_admin']),
+                'last_login': user['last_login'],
+                'login_history': login_history[-3:][::-1]  # Last 3 logins, newest first
+            })
+        
+        # Get active sessions with detailed info
+        session_records = db.execute('''
+            SELECT 
+                user_sessions.*, 
+                users.username, 
+                users.is_admin
+            FROM user_sessions
+            JOIN users ON user_sessions.user_id = users.id
+            WHERE user_sessions.expires_at > datetime('now')
+            ORDER BY user_sessions.created_at DESC
+        ''').fetchall()
+        
+        sessions = []
+        for sess in session_records:
+            try:
+                session_data = json.loads(sess['session_data']) if sess['session_data'] else {}
+            except json.JSONDecodeError:
+                session_data = {'error': 'Invalid session data'}
             
-            logs = []
-            log_records = db.execute('''
-                SELECT activity_logs.*, users.username 
-                FROM activity_logs 
-                LEFT JOIN users ON activity_logs.user_id = users.id 
-                ORDER BY activity_logs.timestamp DESC 
-                LIMIT 100
-            ''').fetchall()
-
-            for log in log_records:
-                try:
-                    session_data = json.loads(log['session_data']) if log['session_data'] else {}
-                except:
-                    session_data = {}
-                
-                logs.append({
-                    'id': log['id'],
-                    'username': log['username'],
-                    'action': log['action'],
-                    'timestamp': log['timestamp'],
-                    'ip_address': log['ip_address'],
-                    'location': get_ip_geolocation(log['ip_address'])
-                })
-
-            # Get active sessions
-            sessions = db.execute('''
-                SELECT user_sessions.*, users.username
-                FROM user_sessions
-                JOIN users ON user_sessions.user_id = users.id
-                WHERE user_sessions.expires_at > datetime('now')
-                ORDER BY user_sessions.created_at DESC
-            ''').fetchall()
-
-            # Get attack attempts
-            attacks = db.execute('''
-                SELECT * FROM attack_attempts 
-                ORDER BY timestamp DESC 
-                LIMIT 100
-            ''').fetchall()
-
-            db.close()
-
-            return render_template(
-                'admin.html',
-                users=users,
-                logs=logs,
-                sessions=sessions,
-                attacks=attacks
-            )
-
-        except sqlite3.Error as e:
-            app.logger.error(f"Database error in admin panel: {str(e)}")
-            db.close()
-            abort(500)
-
+            geo_data = get_ip_geolocation(sess['ip_address'])
+            sessions.append({
+                'id': sess['id'],
+                'user_id': sess['user_id'],
+                'username': sess['username'],
+                'is_admin': bool(sess['is_admin']),
+                'ip_address': sess['ip_address'],
+                'user_agent': sess['user_agent'],
+                'created_at': sess['created_at'],
+                'expires_at': sess['expires_at'],
+                'last_activity': sess['last_activity'],
+                'session_id': sess['session_id'],
+                'location': geo_data,
+                'session_data': session_data
+            })
+        
+        # Get recent activity logs
+        activity_records = db.execute('''
+            SELECT 
+                activity_logs.*, 
+                users.username
+            FROM activity_logs 
+            LEFT JOIN users ON activity_logs.user_id = users.id 
+            ORDER BY activity_logs.timestamp DESC 
+            LIMIT 100
+        ''').fetchall()
+        
+        activities = []
+        for log in activity_records:
+            activities.append({
+                'id': log['id'],
+                'user_id': log['user_id'],
+                'username': log['username'],
+                'action': log['action'],
+                'timestamp': log['timestamp'],
+                'ip_address': log['ip_address'],
+                'details': log['details'],
+                'user_agent': log['user_agent'],
+                'location': log['location']
+            })
+        
+        # Get attack attempts
+        attack_attempts = []
+        attack_records = db.execute('''
+            SELECT * FROM attack_attempts 
+            ORDER BY timestamp DESC 
+            LIMIT 100
+        ''').fetchall()
+        
+        for attack in attack_records:
+            attack_attempts.append({
+                'timestamp': attack['timestamp'],
+                'ip_address': attack['ip_address'],
+                'attack_type': attack['attack_type'],
+                'payload': attack['payload'],
+                'user_agent': attack['user_agent'],
+                'request_data': attack['request_data'],
+                'location': attack['location']
+            })
+        
+        # Get file-based logs
+        file_logs = []
+        try:
+            with open('logs/activity.log', 'r') as f:
+                for line in f:
+                    parts = line.strip().split('|', 5)
+                    if len(parts) >= 6:
+                        file_logs.append({
+                            'timestamp': parts[0],
+                            'username': parts[1],
+                            'activity_type': parts[2],
+                            'ip': parts[3],
+                            'location': parts[4],
+                            'details': parts[5] if len(parts) > 5 else None
+                        })
+        except FileNotFoundError:
+            pass
+        
+        db.close()
+        
+        return render_template(
+            'admin.html',
+            users=users,
+            sessions=sessions,
+            activities=activities,
+            attack_attempts=attack_attempts,
+            file_logs=file_logs[-50:][::-1],  # Last 50 entries, newest first
+            current_client=get_client_info(),
+            debug_mode=app.debug
+        )
     except Exception as e:
         app.logger.error(f"Admin panel error: {str(e)}")
         abort(500)
+
+@app.route('/admin/terminate_session', methods=['POST'])
+def terminate_session():
+    if 'username' not in session:
+        return jsonify({'status': 'error', 'message': 'Not authenticated'}), 401
+    
+    session_id = request.form.get('session_id')
+    if not session_id:
+        return jsonify({'status': 'error', 'message': 'Session ID required'}), 400
+    
+    try:
+        db = get_db()
+        # Get session info before deleting
+        session_info = db.execute('''
+            SELECT user_sessions.*, users.username 
+            FROM user_sessions 
+            JOIN users ON user_sessions.user_id = users.id 
+            WHERE session_id = ?
+        ''', (session_id,)).fetchone()
+        
+        if not session_info:
+            db.close()
+            return jsonify({'status': 'error', 'message': 'Session not found'}), 404
+        
+        # Delete the session
+        db.execute('DELETE FROM user_sessions WHERE session_id = ?', (session_id,))
+        db.commit()
+        db.close()
+        
+        # Log this activity
+        log_activity(session['user_id'], 'SESSION_TERMINATED', request.remote_addr, 
+                    f"Terminated session for {session_info['username']} (ID: {session_id})")
+        
+        # If terminating current session, log out
+        if session.get('session_identifier') == session_id:
+            session.clear()
+            return jsonify({
+                'status': 'success', 
+                'message': 'Session terminated', 
+                'redirect': url_for('login')
+            })
+        
+        return jsonify({'status': 'success', 'message': 'Session terminated'})
+    except Exception as e:
+        app.logger.error(f"Error terminating session: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/debug')
 def debug():
@@ -540,4 +745,37 @@ def internal_error(error):
     return render_template('error.html', error_code=500, error_message="Internal server error"), 500
 
 if __name__ == '__main__':
+    # Close all log handlers first
+    for handler in app.logger.handlers[:]:
+        handler.close()
+        app.logger.removeHandler(handler)
+    
+    for handler in security_logger.handlers[:]:
+        handler.close()
+        security_logger.removeHandler(handler)
+    
+    for handler in activity_logger.handlers[:]:
+        handler.close()
+        activity_logger.removeHandler(handler)
+    
+    # Delete existing database and logs to ensure clean start
+    try:
+        if os.path.exists(app.config['DATABASE']):
+            os.remove(app.config['DATABASE'])
+    except Exception as e:
+        print(f"Error deleting database: {e}")
+    
+    try:
+        if os.path.exists('logs'):
+            import shutil
+            shutil.rmtree('logs')
+    except Exception as e:
+        print(f"Error deleting logs: {e}")
+    
+    # Initialize new database
+    init_db()
+    
+    # Create logs directory
+    os.makedirs('logs', exist_ok=True)
+    
     app.run(debug=True)
