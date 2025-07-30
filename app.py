@@ -152,21 +152,20 @@ def get_ip_geolocation(ip_address):
         if ip_address == '127.0.0.1':
             return {'city': 'Localhost', 'country': 'Development', 'isp': 'Local Network'}
         
+        # Use ipinfo.io with a token (you can get a free token)
         response = requests.get(
-            f'http://ip-api.com/json/{ip_address}?fields=status,message,country,regionName,city,isp,query',
+            f'https://ipinfo.io/{ip_address}?token=YOUR_IPINFO_TOKEN',
             timeout=3
         )
         data = response.json()
         
-        if data.get('status') == 'success':
-            return {
-                'city': data.get('city', 'Unknown'),
-                'region': data.get('regionName', 'Unknown'),
-                'country': data.get('country', 'Unknown'),
-                'isp': data.get('isp', 'Unknown'),
-                'ip': data.get('query', ip_address)
-            }
-        return {'error': data.get('message', 'Unknown error')}
+        return {
+            'city': data.get('city', 'Unknown'),
+            'region': data.get('region', 'Unknown'),
+            'country': data.get('country', 'Unknown'),
+            'isp': data.get('org', 'Unknown ISP'),
+            'ip': ip_address
+        }
     except Exception as e:
         return {'error': str(e)}
 
@@ -505,29 +504,29 @@ def admin():
         abort(403)
     
     try:
-        # Vulnerable query - using string formatting
         db = get_db()
-        query = "SELECT is_admin FROM users WHERE id = %s" % session['user_id']
-        user = db.execute(query).fetchone()
+        
+        # Check admin status
+        user = db.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],)).fetchone()
         if not user or not user['is_admin']:
             db.close()
             abort(403)
         
         # Get all users with login history
-        user_records = db.execute('SELECT id, username, email, is_admin, last_login, login_history FROM users').fetchall()
+        user_records = db.execute('SELECT id, username, email, is_admin, last_login, failed_attempts, account_locked FROM users').fetchall()
         users = []
         for user in user_records:
-            login_history = json.loads(user['login_history']) if user['login_history'] else []
             users.append({
                 'id': user['id'],
                 'username': user['username'],
                 'email': user['email'],
                 'is_admin': bool(user['is_admin']),
                 'last_login': user['last_login'],
-                'login_history': login_history[-3:][::-1]
+                'failed_attempts': user['failed_attempts'],
+                'account_locked': bool(user['account_locked'])
             })
         
-        # Get active sessions
+        # Get active sessions with proper location data
         session_records = db.execute('''
             SELECT 
                 user_sessions.*, 
@@ -575,6 +574,7 @@ def admin():
         
         activities = []
         for log in activity_records:
+            geo_data = get_ip_geolocation(log['ip_address'])
             activities.append({
                 'id': log['id'],
                 'user_id': log['user_id'],
@@ -584,18 +584,20 @@ def admin():
                 'ip_address': log['ip_address'],
                 'details': log['details'],
                 'user_agent': log['user_agent'],
-                'location': log['location']
+                'location': geo_data,
+                'session_data': json.loads(log['session_data']) if log['session_data'] else {}
             })
         
         # Get attack attempts
-        attack_attempts = []
         attack_records = db.execute('''
             SELECT * FROM attack_attempts 
             ORDER BY timestamp DESC 
             LIMIT 100
         ''').fetchall()
         
+        attack_attempts = []
         for attack in attack_records:
+            geo_data = get_ip_geolocation(attack['ip_address'])
             attack_attempts.append({
                 'timestamp': attack['timestamp'],
                 'ip_address': attack['ip_address'],
@@ -603,26 +605,36 @@ def admin():
                 'payload': attack['payload'],
                 'user_agent': attack['user_agent'],
                 'request_data': attack['request_data'],
-                'location': attack['location']
+                'location': geo_data
             })
         
-        # Get file-based logs
-        file_logs = []
-        try:
-            with open('logs/activity.log', 'r') as f:
-                for line in f:
-                    parts = line.strip().split('|', 5)
-                    if len(parts) >= 6:
-                        file_logs.append({
-                            'timestamp': parts[0],
-                            'username': parts[1],
-                            'activity_type': parts[2],
-                            'ip': parts[3],
-                            'location': parts[4],
-                            'details': parts[5] if len(parts) > 5 else None
-                        })
-        except FileNotFoundError:
-            pass
+        # Get user agent statistics
+        user_agent_stats = db.execute('''
+            SELECT 
+                user_agent,
+                MIN(timestamp) as first_seen,
+                MAX(timestamp) as last_seen,
+                COUNT(*) as count
+            FROM (
+                SELECT user_agent, timestamp FROM activity_logs
+                UNION ALL
+                SELECT user_agent, timestamp FROM attack_attempts
+                UNION ALL
+                SELECT user_agent, created_at as timestamp FROM user_sessions
+            )
+            GROUP BY user_agent
+            ORDER BY count DESC
+            LIMIT 50
+        ''').fetchall()
+        
+        user_agents = []
+        for ua in user_agent_stats:
+            user_agents.append({
+                'user_agent': ua['user_agent'],
+                'first_seen': ua['first_seen'],
+                'last_seen': ua['last_seen'],
+                'count': ua['count']
+            })
         
         db.close()
         
@@ -631,8 +643,8 @@ def admin():
             users=users,
             sessions=sessions,
             activities=activities,
-            attack_attempts=attack_attempts,
-            file_logs=file_logs[-50:][::-1],
+            attacks=attack_attempts,
+            user_agents=user_agents,
             current_client=get_client_info(),
             debug_mode=app.debug
         )

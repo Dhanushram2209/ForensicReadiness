@@ -27,13 +27,13 @@
                         <tbody>
                             {% for user in users %}
                             <tr>
-                                <td>{{ user['id'] }}</td>
-                                <td>{{ user['username'] }}</td>
-                                <td>{{ user['email'] }}</td>
-                                <td>{{ 'Yes' if user['is_admin'] else 'No' }}</td>
-                                <td>{{ user['last_login'] or 'Never' }}</td>
-                                <td>{{ user['failed_attempts'] }}</td>
-                                <td>{{ 'Locked' if user['account_locked'] else 'Active' }}</td>
+                                <td>{{ user.id }}</td>
+                                <td>{{ user.username }}</td>
+                                <td>{{ user.email }}</td>
+                                <td>{{ 'Yes' if user.is_admin else 'No' }}</td>
+                                <td>{{ user.last_login or 'Never' }}</td>
+                                <td>{{ user.failed_attempts }}</td>
+                                <td>{{ 'Locked' if user.account_locked else 'Active' }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -58,38 +58,46 @@
                                 <th>Created</th>
                                 <th>Expires</th>
                                 <th>Session Data</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for session in sessions %}
                             <tr>
-                                <td>{{ session['username'] }} ({{ 'Admin' if session['is_admin'] else 'User' }})</td>
-                                <td>{{ session['ip_address'] }}</td>
+                                <td>{{ session.username }} ({{ 'Admin' if session.is_admin else 'User' }})</td>
+                                <td>{{ session.ip_address }}</td>
                                 <td>
-                                    {% if session['location'].error %}
-                                        <span class="text-danger">Error</span>
+                                    {% if session.location.error %}
+                                        <span class="text-danger">Error: {{ session.location.error }}</span>
                                     {% else %}
-                                        {{ session['location'].city }}, {{ session['location'].country }}
+                                        {{ session.location.city }}, {{ session.location.country }}<br>
+                                        <small>{{ session.location.isp }}</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ session['user_agent']|truncate(30) }}</td>
-                                <td>{{ session['created_at'] }}</td>
-                                <td>{{ session['expires_at'] }}</td>
+                                <td>{{ session.user_agent|truncate(30) }}</td>
+                                <td>{{ session.created_at }}</td>
+                                <td>{{ session.expires_at }}</td>
                                 <td>
-                                    <button class="btn btn-sm btn-primary" type="button" data-toggle="collapse" 
-                                        data-target="#session-{{ loop.index }}" aria-expanded="false">
+                                    <button class="btn btn-sm btn-primary" type="button" data-bs-toggle="collapse" 
+                                        data-bs-target="#session-{{ loop.index }}" aria-expanded="false">
                                         View Session
                                     </button>
                                     <div class="collapse mt-2" id="session-{{ loop.index }}">
                                         <div class="card card-body">
-                                            <pre>{{ session['session_data']|tojson(indent=2) }}</pre>
+                                            <pre>{{ session.session_data|tojson(indent=2) }}</pre>
                                         </div>
                                     </div>
+                                </td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('terminate_session') }}" class="d-inline">
+                                        <input type="hidden" name="session_id" value="{{ session.session_id }}">
+                                        <button type="submit" class="btn btn-sm btn-danger">Terminate</button>
+                                    </form>
                                 </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="7" class="text-center">No active sessions</td>
+                                <td colspan="8" class="text-center">No active sessions</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -113,40 +121,28 @@
                                 <th>IP Address</th>
                                 <th>Location</th>
                                 <th>Details</th>
-                                <th>Session</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for log in logs %}
+                            {% for activity in activities %}
                             <tr>
-                                <td>{{ log['timestamp'] }}</td>
-                                <td>{{ log['username'] or 'System' }}</td>
-                                <td>{{ log['action'] }}</td>
-                                <td>{{ log['ip_address'] }}</td>
+                                <td>{{ activity.timestamp }}</td>
+                                <td>{{ activity.username or 'System' }}</td>
+                                <td>{{ activity.action }}</td>
+                                <td>{{ activity.ip_address }}</td>
                                 <td>
-                                    {% if log['location'].error %}
-                                        <span class="text-danger">Error</span>
+                                    {% if activity.location.error %}
+                                        <span class="text-danger">Error: {{ activity.location.error }}</span>
                                     {% else %}
-                                        {{ log['location'].city }}, {{ log['location'].country }}<br>
-                                        <small>{{ log['location'].isp }}</small>
+                                        {{ activity.location.city }}, {{ activity.location.country }}<br>
+                                        <small>{{ activity.location.isp }}</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ log['details']|default('', true) }}</td>
-                                <td>
-                                    {% if log['session_data'] %}
-                                        <button class="btn btn-sm btn-info" type="button" data-toggle="collapse" 
-                                            data-target="#log-session-{{ loop.index }}" aria-expanded="false">
-                                            View Session
-                                        </button>
-                                        <div class="collapse mt-2" id="log-session-{{ loop.index }}">
-                                            <div class="card card-body">
-                                                <pre>{{ log['session_data']|tojson(indent=2) }}</pre>
-                                            </div>
-                                        </div>
-                                    {% else %}
-                                        <span class="text-muted">None</span>
-                                    {% endif %}
-                                </td>
+                                <td>{{ activity.details|default('', true) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center">No activity logs</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -170,40 +166,28 @@
                                 <th>Attack Type</th>
                                 <th>Payload</th>
                                 <th>User Agent</th>
-                                <th>Request Data</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for attack in attacks %}
                             <tr>
-                                <td>{{ attack['timestamp'] }}</td>
-                                <td>{{ attack['ip_address'] }}</td>
+                                <td>{{ attack.timestamp }}</td>
+                                <td>{{ attack.ip_address }}</td>
                                 <td>
-                                    {% if attack['location'].error %}
-                                        <span class="text-danger">Error</span>
+                                    {% if attack.location.error %}
+                                        <span class="text-danger">Error: {{ attack.location.error }}</span>
                                     {% else %}
-                                        {{ attack['location'].city }}, {{ attack['location'].country }}<br>
-                                        <small>{{ attack['location'].isp }}</small>
+                                        {{ attack.location.city }}, {{ attack.location.country }}<br>
+                                        <small>{{ attack.location.isp }}</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ attack['attack_type'] }}</td>
-                                <td>{{ attack['payload']|truncate(30) }}</td>
-                                <td>{{ attack['user_agent']|truncate(30) }}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-warning" type="button" data-toggle="collapse" 
-                                        data-target="#attack-{{ loop.index }}" aria-expanded="false">
-                                        View Request
-                                    </button>
-                                    <div class="collapse mt-2" id="attack-{{ loop.index }}">
-                                        <div class="card card-body">
-                                            <pre>{{ attack['request_data'] }}</pre>
-                                        </div>
-                                    </div>
-                                </td>
+                                <td>{{ attack.attack_type }}</td>
+                                <td>{{ attack.payload|truncate(50) }}</td>
+                                <td>{{ attack.user_agent|truncate(30) }}</td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="7" class="text-center">No attack attempts detected</td>
+                                <td colspan="6" class="text-center">No attack attempts detected</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -230,10 +214,10 @@
                         <tbody>
                             {% for ua in user_agents %}
                             <tr>
-                                <td>{{ ua['user_agent']|truncate(50) }}</td>
-                                <td>{{ ua['first_seen'] }}</td>
-                                <td>{{ ua['last_seen'] }}</td>
-                                <td>{{ ua['count'] }}</td>
+                                <td>{{ ua.user_agent|truncate(50) }}</td>
+                                <td>{{ ua.first_seen }}</td>
+                                <td>{{ ua.last_seen }}</td>
+                                <td>{{ ua.count }}</td>
                             </tr>
                             {% else %}
                             <tr>
