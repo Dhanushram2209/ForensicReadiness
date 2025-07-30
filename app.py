@@ -14,8 +14,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from user_agents import parse
-import geoip2.database
-from geoip2.errors import AddressNotFoundError
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -151,23 +149,25 @@ if not os.path.exists(app.config['DATABASE']):
 # Helper functions (same as before)
 def get_ip_geolocation(ip_address):
     try:
-        if ip_address in ['127.0.0.1', '::1']:
+        if ip_address == '127.0.0.1':
             return {'city': 'Localhost', 'country': 'Development', 'isp': 'Local Network'}
         
-        # Use local GeoIP database
-        with geoip2.database.Reader('GeoLite2-City.mmdb') as reader:
-            response = reader.city(ip_address)
+        response = requests.get(
+            f'http://ip-api.com/json/{ip_address}?fields=status,message,country,regionName,city,isp,query',
+            timeout=3
+        )
+        data = response.json()
+        
+        if data.get('status') == 'success':
             return {
-                'city': response.city.name or 'Unknown',
-                'region': response.subdivisions.most_specific.name or 'Unknown',
-                'country': response.country.name or 'Unknown',
-                'isp': 'Unknown',  # This requires a different database
-                'ip': ip_address
+                'city': data.get('city', 'Unknown'),
+                'region': data.get('regionName', 'Unknown'),
+                'country': data.get('country', 'Unknown'),
+                'isp': data.get('isp', 'Unknown'),
+                'ip': data.get('query', ip_address)
             }
-    except AddressNotFoundError:
-        return {'city': 'Unknown', 'country': 'Unknown', 'isp': 'Unknown'}
+        return {'error': data.get('message', 'Unknown error')}
     except Exception as e:
-        app.logger.error(f"GeoIP error: {str(e)}")
         return {'error': str(e)}
 
 def get_client_info():
@@ -505,38 +505,124 @@ def admin():
         abort(403)
     
     try:
+        # Vulnerable query - using string formatting
         db = get_db()
-        
-        # Check admin status
-        user = db.execute('SELECT is_admin FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+        query = "SELECT is_admin FROM users WHERE id = %s" % session['user_id']
+        user = db.execute(query).fetchone()
         if not user or not user['is_admin']:
             db.close()
             abort(403)
         
-        # Get all data
-        users = db.execute('SELECT * FROM users').fetchall()
-        sessions = db.execute('''
-            SELECT us.*, u.username, u.is_admin 
-            FROM user_sessions us
-            JOIN users u ON us.user_id = u.id
-            WHERE us.expires_at > datetime('now')
+        # Get all users with login history
+        user_records = db.execute('SELECT id, username, email, is_admin, last_login, login_history FROM users').fetchall()
+        users = []
+        for user in user_records:
+            login_history = json.loads(user['login_history']) if user['login_history'] else []
+            users.append({
+                'id': user['id'],
+                'username': user['username'],
+                'email': user['email'],
+                'is_admin': bool(user['is_admin']),
+                'last_login': user['last_login'],
+                'login_history': login_history[-3:][::-1]
+            })
+        
+        # Get active sessions
+        session_records = db.execute('''
+            SELECT 
+                user_sessions.*, 
+                users.username, 
+                users.is_admin
+            FROM user_sessions
+            JOIN users ON user_sessions.user_id = users.id
+            WHERE user_sessions.expires_at > datetime('now')
+            ORDER BY user_sessions.created_at DESC
         ''').fetchall()
         
-        logs = db.execute('''
-            SELECT al.*, u.username 
-            FROM activity_logs al
-            LEFT JOIN users u ON al.user_id = u.id
-            ORDER BY al.timestamp DESC LIMIT 100
+        sessions = []
+        for sess in session_records:
+            try:
+                session_data = json.loads(sess['session_data']) if sess['session_data'] else {}
+            except json.JSONDecodeError:
+                session_data = {'error': 'Invalid session data'}
+            
+            geo_data = get_ip_geolocation(sess['ip_address'])
+            sessions.append({
+                'id': sess['id'],
+                'user_id': sess['user_id'],
+                'username': sess['username'],
+                'is_admin': bool(sess['is_admin']),
+                'ip_address': sess['ip_address'],
+                'user_agent': sess['user_agent'],
+                'created_at': sess['created_at'],
+                'expires_at': sess['expires_at'],
+                'last_activity': sess['last_activity'],
+                'session_id': sess['session_id'],
+                'location': geo_data,
+                'session_data': session_data
+            })
+        
+        # Get recent activity logs
+        activity_records = db.execute('''
+            SELECT 
+                activity_logs.*, 
+                users.username
+            FROM activity_logs 
+            LEFT JOIN users ON activity_logs.user_id = users.id 
+            ORDER BY activity_logs.timestamp DESC 
+            LIMIT 100
         ''').fetchall()
         
-        attacks = db.execute('SELECT * FROM attack_attempts ORDER BY timestamp DESC LIMIT 100').fetchall()
-        user_agents = db.execute('''
-            SELECT user_agent, MIN(timestamp) as first_seen, 
-                   MAX(timestamp) as last_seen, COUNT(*) as count
-            FROM activity_logs
-            GROUP BY user_agent
-            ORDER BY count DESC
+        activities = []
+        for log in activity_records:
+            activities.append({
+                'id': log['id'],
+                'user_id': log['user_id'],
+                'username': log['username'],
+                'action': log['action'],
+                'timestamp': log['timestamp'],
+                'ip_address': log['ip_address'],
+                'details': log['details'],
+                'user_agent': log['user_agent'],
+                'location': log['location']
+            })
+        
+        # Get attack attempts
+        attack_attempts = []
+        attack_records = db.execute('''
+            SELECT * FROM attack_attempts 
+            ORDER BY timestamp DESC 
+            LIMIT 100
         ''').fetchall()
+        
+        for attack in attack_records:
+            attack_attempts.append({
+                'timestamp': attack['timestamp'],
+                'ip_address': attack['ip_address'],
+                'attack_type': attack['attack_type'],
+                'payload': attack['payload'],
+                'user_agent': attack['user_agent'],
+                'request_data': attack['request_data'],
+                'location': attack['location']
+            })
+        
+        # Get file-based logs
+        file_logs = []
+        try:
+            with open('logs/activity.log', 'r') as f:
+                for line in f:
+                    parts = line.strip().split('|', 5)
+                    if len(parts) >= 6:
+                        file_logs.append({
+                            'timestamp': parts[0],
+                            'username': parts[1],
+                            'activity_type': parts[2],
+                            'ip': parts[3],
+                            'location': parts[4],
+                            'details': parts[5] if len(parts) > 5 else None
+                        })
+        except FileNotFoundError:
+            pass
         
         db.close()
         
@@ -544,9 +630,11 @@ def admin():
             'admin.html',
             users=users,
             sessions=sessions,
-            logs=logs,
-            attacks=attacks,
-            user_agents=user_agents
+            activities=activities,
+            attack_attempts=attack_attempts,
+            file_logs=file_logs[-50:][::-1],
+            current_client=get_client_info(),
+            debug_mode=app.debug
         )
     except Exception as e:
         app.logger.error(f"Admin panel error: {str(e)}")
