@@ -5,3 +5,4 @@ python-geoip==1.2
 python-geoip-geolite2==2015.303
 requests==2.26.0
 gunicorn
+python-dotenv==0.19.0

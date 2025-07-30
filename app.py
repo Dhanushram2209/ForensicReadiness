@@ -152,9 +152,10 @@ def get_ip_geolocation(ip_address):
         if ip_address == '127.0.0.1':
             return {'city': 'Localhost', 'country': 'Development', 'isp': 'Local Network'}
         
-        # Use ipinfo.io with a token (you can get a free token)
+        # Use ipinfo.io with your token (sign up at ipinfo.io for a free token)
+        token = os.getenv('IPINFO_TOKEN', '')  # Get from environment variable
         response = requests.get(
-            f'https://ipinfo.io/{ip_address}?token=YOUR_IPINFO_TOKEN',
+            f'https://ipinfo.io/{ip_address}?token={token}',
             timeout=3
         )
         data = response.json()
@@ -170,10 +171,16 @@ def get_ip_geolocation(ip_address):
         return {'error': str(e)}
 
 def get_client_info():
+    # Get IP address - handle proxy headers properly
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ',' in ip:
+    if ip:
+        # Handle multiple IPs in X-Forwarded-For
         ip = ip.split(',')[0].strip()
-
+    
+    # If still localhost and in production, try other headers
+    if ip == '127.0.0.1' and not app.debug:
+        ip = request.headers.get('X-Real-Ip', ip)
+    
     ua_string = request.headers.get('User-Agent', '')
     user_agent = parse(ua_string)
     geo_data = get_ip_geolocation(ip)
@@ -199,6 +206,12 @@ def get_client_info():
 
 def log_attack_attempt(ip_address, attack_type, payload=None):
     try:
+        # Get real IP if behind proxy
+        if ip_address == '127.0.0.1' and not app.debug:
+            ip_address = request.headers.get('X-Forwarded-For', ip_address)
+            if ip_address:
+                ip_address = ip_address.split(',')[0].strip()
+        
         geo_data = get_ip_geolocation(ip_address)
         location_str = f"{geo_data.get('city', 'Unknown')}, {geo_data.get('country', 'Unknown')}"
         
@@ -227,6 +240,12 @@ def log_attack_attempt(ip_address, attack_type, payload=None):
 
 def log_activity(user_id, action, ip_address, details=None):
     try:
+        # Get real IP if behind proxy
+        if ip_address == '127.0.0.1' and not app.debug:
+            ip_address = request.headers.get('X-Forwarded-For', ip_address)
+            if ip_address:
+                ip_address = ip_address.split(',')[0].strip()
+        
         client_info = get_client_info()
         geo_data = client_info['geolocation']
         location_str = f"{geo_data.get('city', 'Unknown')}, {geo_data.get('country', 'Unknown')}"
@@ -284,13 +303,21 @@ def update_login_history(user_id, ip_address):
 # Middleware (same as before)
 @app.before_request
 def before_request():
+    # Get real IP behind proxy
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip:
+        ip = ip.split(',')[0].strip()
+    
+    # Check for SQL injection attempts
     for key, value in request.values.items():
         if any(sql_keyword in str(value).lower() for sql_keyword in ['select', 'union', 'insert', 'delete', 'drop', '--']):
-            log_attack_attempt(request.remote_addr, 'SQL Injection', value)
+            log_attack_attempt(ip, 'SQL Injection', value)
     
+    # Check for XSS attempts
     if any(xss_keyword in str(request.values) for xss_keyword in ['<script>', 'javascript:', 'onerror=', 'onload=']):
-        log_attack_attempt(request.remote_addr, 'XSS Attempt', str(request.values))
+        log_attack_attempt(ip, 'XSS Attempt', str(request.values))
     
+    # Clean expired sessions
     try:
         db = get_db()
         db.execute('''
