@@ -6,6 +6,7 @@
     <div class="container">
         <h1 class="mt-4 mb-4">Admin Panel</h1>
         
+        <!-- User Management -->
         <div class="card mb-4">
             <div class="card-header">
                 <h2>User Management</h2>
@@ -42,6 +43,7 @@
             </div>
         </div>
 
+        <!-- Active Sessions -->
         <div class="card mb-4">
             <div class="card-header">
                 <h2>Active Sessions</h2>
@@ -66,11 +68,8 @@
                                 <td>{{ session['username'] }} ({{ 'Admin' if session['is_admin'] else 'User' }})</td>
                                 <td>{{ session['ip_address'] }}</td>
                                 <td>
-                                    {% if session['location'].error %}
-                                        <span class="text-danger">Error</span>
-                                    {% else %}
-                                        {{ session['location'].city }}, {{ session['location'].country }}
-                                    {% endif %}
+                                    {% set location = get_ip_geolocation(session['ip_address']) %}
+                                    {{ location.city }}, {{ location.country }}
                                 </td>
                                 <td>{{ session['user_agent']|truncate(30) }}</td>
                                 <td>{{ session['created_at'] }}</td>
@@ -98,6 +97,7 @@
             </div>
         </div>
 
+        <!-- Activity Logs -->
         <div class="card mb-4">
             <div class="card-header">
                 <h2>Activity Logs</h2>
@@ -113,7 +113,6 @@
                                 <th>IP Address</th>
                                 <th>Location</th>
                                 <th>Details</th>
-                                <th>Session</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -124,29 +123,14 @@
                                 <td>{{ log['action'] }}</td>
                                 <td>{{ log['ip_address'] }}</td>
                                 <td>
-                                    {% if log['location'].error %}
-                                        <span class="text-danger">Error</span>
-                                    {% else %}
-                                        {{ log['location'].city }}, {{ log['location'].country }}<br>
-                                        <small>{{ log['location'].isp }}</small>
-                                    {% endif %}
+                                    {% set location = get_ip_geolocation(log['ip_address']) %}
+                                    {{ location.city }}, {{ location.country }}
                                 </td>
                                 <td>{{ log['details']|default('', true) }}</td>
-                                <td>
-                                    {% if log['session_data'] %}
-                                        <button class="btn btn-sm btn-info" type="button" data-toggle="collapse" 
-                                            data-target="#log-session-{{ loop.index }}" aria-expanded="false">
-                                            View Session
-                                        </button>
-                                        <div class="collapse mt-2" id="log-session-{{ loop.index }}">
-                                            <div class="card card-body">
-                                                <pre>{{ log['session_data']|tojson(indent=2) }}</pre>
-                                            </div>
-                                        </div>
-                                    {% else %}
-                                        <span class="text-muted">None</span>
-                                    {% endif %}
-                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center">No activity logs</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -155,6 +139,7 @@
             </div>
         </div>
 
+        <!-- Attack Attempts -->
         <div class="card mb-4">
             <div class="card-header">
                 <h2>Attack Attempts</h2>
@@ -170,7 +155,6 @@
                                 <th>Attack Type</th>
                                 <th>Payload</th>
                                 <th>User Agent</th>
-                                <th>Request Data</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -179,31 +163,16 @@
                                 <td>{{ attack['timestamp'] }}</td>
                                 <td>{{ attack['ip_address'] }}</td>
                                 <td>
-                                    {% if attack['location'].error %}
-                                        <span class="text-danger">Error</span>
-                                    {% else %}
-                                        {{ attack['location'].city }}, {{ attack['location'].country }}<br>
-                                        <small>{{ attack['location'].isp }}</small>
-                                    {% endif %}
+                                    {% set location = get_ip_geolocation(attack['ip_address']) %}
+                                    {{ location.city }}, {{ location.country }}
                                 </td>
                                 <td>{{ attack['attack_type'] }}</td>
                                 <td>{{ attack['payload']|truncate(30) }}</td>
                                 <td>{{ attack['user_agent']|truncate(30) }}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-warning" type="button" data-toggle="collapse" 
-                                        data-target="#attack-{{ loop.index }}" aria-expanded="false">
-                                        View Request
-                                    </button>
-                                    <div class="collapse mt-2" id="attack-{{ loop.index }}">
-                                        <div class="card card-body">
-                                            <pre>{{ attack['request_data'] }}</pre>
-                                        </div>
-                                    </div>
-                                </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="7" class="text-center">No attack attempts detected</td>
+                                <td colspan="6" class="text-center">No attack attempts detected</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -212,6 +181,7 @@
             </div>
         </div>
 
+        <!-- User Agent Statistics -->
         <div class="card mb-4">
             <div class="card-header">
                 <h2>User Agent Statistics</h2>
